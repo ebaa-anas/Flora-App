@@ -23,6 +23,14 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExpertChatScreen(onBack: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().padding(top = 80.dp).padding(24.dp)) {
+        Column {
+            Text("Expert Support", style = MaterialTheme.typography.headlineMedium)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("Our botanists are ready to help.")
+            Button(onClick = onBack) { Text("Go Home") }
+        }
+    }
     var messageText by remember { mutableStateOf("") }
 
     // Simulated chat history

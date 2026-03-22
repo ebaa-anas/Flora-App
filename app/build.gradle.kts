@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    kotlin("plugin.serialization") version "1.9.22"
 }
 
 android {
@@ -50,6 +51,13 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    // Supabase & Serialization (The tools to fetch and read data)
+    implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.0")
+    implementation("io.github.jan-tennert.supabase:realtime-kt:2.5.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+
+    // Ktor (The engine that drives the internet connection)
+    implementation("io.ktor:ktor-client-android:2.3.11")
     implementation("androidx.compose.foundation:foundation:1.6.0")
     implementation(libs.androidx.compose.material3)
     testImplementation(libs.junit)

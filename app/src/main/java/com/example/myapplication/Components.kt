@@ -14,9 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.example.myapplication.model.Plant
 
 @Composable
 fun AddressTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: ImageVector) {
@@ -125,6 +128,30 @@ fun PaymentTypeTab(isSelected: Boolean, label: String, icon: ImageVector, onClic
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp
             )
+        }
+    }
+}
+
+@Composable
+fun ModernPlantCard(plant: Plant, onClick: (Plant) -> Unit) {
+    Card(
+        modifier = Modifier
+            .padding(8.dp)
+            .clickable { onClick(plant) },
+        shape = RoundedCornerShape(28.dp),
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        Column {
+            AsyncImage(
+                model = plant.imageUrl,
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().height(180.dp),
+                contentScale = ContentScale.Crop
+            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(plant.name, fontWeight = FontWeight.Bold)
+                Text("$${plant.price}", color = MaterialTheme.colorScheme.primary)
+            }
         }
     }
 }

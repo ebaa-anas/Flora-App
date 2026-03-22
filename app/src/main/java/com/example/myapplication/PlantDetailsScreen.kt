@@ -19,16 +19,52 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.myapplication.model.CareGuide
 import com.example.myapplication.model.Plant
+import io.github.jan.supabase.postgrest.from
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.query.Columns
+
+
+// --- 1. DATA LOGIC (Ensuring these are defined in this file) ---
+
+// Replace with your actual credentials if they differ from your MainActivity
+private const val SUPABASE_URL = "https://mckpeuvojctibneakuje.supabase.co"
+private const val SUPABASE_KEY = "sb_publishable_BV7u7ShKZg6ozTBRf74EbQ_5aA4CKXu"
+
+// This function needs to access the client.
+// If 'supabase' is defined in MainActivity as a global val, import it,
+// or define it here if it's not visible.
+suspend fun fetchCareGuide(plantId: Int): CareGuide? {
+    return withContext(Dispatchers.IO) {
+        try {
+            // Using the select block directly is often cleaner
+            supabase.from("care_guides")
+                .select {
+                    filter {
+                        eq("plant_id", plantId)
+                    }
+                }
+                .decodeSingleOrNull<CareGuide>()
+        } catch (e: Exception) {
+            println("Supabase Error: ${e.message}")
+            null
+        }
+    }
+}
+// --- 2. THE UI SCREEN ---
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +75,15 @@ fun PlantDetailsScreen(
 ) {
     val context = LocalContext.current
     var selectedPot by remember { mutableStateOf<String?>(null) }
+
+    // FETCHING REAL DATA
+    var careData by remember { mutableStateOf<CareGuide?>(null) }
+    LaunchedEffect(plant.id) {
+        // Safe check for null ID
+        val id = plant.id ?: 0
+        careData = fetchCareGuide(id)
+    }
+
     val potPrice = 15.0
     val totalWithPot = if (selectedPot != null) plant.price + potPrice else plant.price
 
@@ -46,11 +91,13 @@ fun PlantDetailsScreen(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("") }, // Empty title for clean look
+                title = { Text("") },
                 navigationIcon = {
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surface.copy(0.7f), CircleShape)
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(0.7f), CircleShape)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
                     }
@@ -64,7 +111,7 @@ fun PlantDetailsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            // 1. HERO IMAGE WITH GRADIENT OVERLAY
+            // HERO IMAGE
             Box(modifier = Modifier.fillMaxWidth().height(420.dp)) {
                 AsyncImage(
                     model = plant.imageUrl,
@@ -73,7 +120,7 @@ fun PlantDetailsScreen(
                     contentScale = ContentScale.Crop
                 )
 
-                // AR Trigger: Floating Glass Style
+                // AR View Button
                 Surface(
                     onClick = {
                         val sceneViewerIntent = Intent(Intent.ACTION_VIEW)
@@ -91,7 +138,10 @@ fun PlantDetailsScreen(
                     shape = RoundedCornerShape(16.dp),
                     tonalElevation = 8.dp
                 ) {
-                    Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(Icons.Rounded.ViewInAr, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("View in AR", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -100,29 +150,38 @@ fun PlantDetailsScreen(
             }
 
             Column(modifier = Modifier.padding(24.dp)) {
-                // 2. NAME AND PRICE
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                // NAME AND PRICE
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column {
-                        Text(plant.name, fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onBackground)
-                        Text(plant.category, color = MaterialTheme.colorScheme.onSurface.copy(0.6f), fontSize = 16.sp)
+                        Text(plant.name, fontSize = 22.sp, fontWeight = FontWeight.Black)
+                        Text(plant.category, color = Color.Gray, fontSize = 16.sp)
                     }
-                    Text("$${plant.price}", fontSize = 32.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                    Text("$${plant.price}", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // 3. PROFESSIONAL CARE STATS (The Luxury "Value Add")
+                // DYNAMIC CARE STATS
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    CareInfoItem(Icons.Rounded.WbSunny, "Light", "Indirect")
-                    CareInfoItem(Icons.Rounded.WaterDrop, "Water", "Weekly")
-                    CareInfoItem(Icons.Rounded.Thermostat, "Temp", "22°C")
+                    CareInfoItem(Icons.Rounded.WbSunny, "Light", careData?.light ?: "Loading...")
+                    CareInfoItem(Icons.Rounded.WaterDrop, "Water", careData?.watering ?: "Loading...")
+                    CareInfoItem(Icons.Rounded.Thermostat, "Temp", careData?.temp ?: "Loading...")
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
+                Text("About", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(plant.description, color = Color.Gray, lineHeight = 22.sp)
 
-                // 4. BUNDLE BUILDER: POT SELECTION
-                Text("Upgrade your vibe", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
-                Text("Select a designer pot for your $${potPrice}", color = MaterialTheme.colorScheme.onSurface.copy(0.5f), fontSize = 14.sp)
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // POT SELECTION
+                Text("Upgrade your vibe", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Text("Select a designer pot for your $${potPrice}", color = Color.Gray, fontSize = 14.sp)
 
                 LazyRow(
                     modifier = Modifier.padding(vertical = 16.dp),
@@ -145,7 +204,10 @@ fun PlantDetailsScreen(
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Box(
-                                    modifier = Modifier.fillMaxWidth().height(100.dp).background(MaterialTheme.colorScheme.background, RoundedCornerShape(16.dp)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(100.dp)
+                                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(16.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(if (pot.contains("Ceramic")) "⚪" else "🟠", fontSize = 40.sp)
@@ -160,16 +222,12 @@ fun PlantDetailsScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // 5. PREMIUM ADD TO CART BUTTON
+                // ADD TO CART BUTTON
                 Button(
                     onClick = { onAddToCart(selectedPot) },
                     modifier = Modifier.fillMaxWidth().height(64.dp),
                     shape = RoundedCornerShape(22.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = Color.White
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 6.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
                     Icon(Icons.Rounded.LocalMall, null)
                     Spacer(modifier = Modifier.width(12.dp))
@@ -179,22 +237,50 @@ fun PlantDetailsScreen(
                         fontWeight = FontWeight.ExtraBold
                     )
                 }
+                // Extra spacer for scrolling
+                Spacer(modifier = Modifier.height(40.dp))
             }
         }
     }
-}
-
-@Composable
+}@Composable
 fun CareInfoItem(icon: ImageVector, label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // Column with a fixed weight ensures the 3 items share the row perfectly
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(horizontal = 8.dp)
+    ) {
         Box(
-            modifier = Modifier.size(50.dp).background(MaterialTheme.colorScheme.surface, CircleShape),
+            modifier = Modifier
+                .size(40.dp) // Smaller, cleaner icon circle
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
-        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Minimized Label
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            color = Color.Gray,
+            fontWeight = FontWeight.Medium
+        )
+
+        // Minimized & Protected Value
+        Text(
+            text = value,
+            fontSize = 11.sp, // Minimized as requested
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
     }
 }

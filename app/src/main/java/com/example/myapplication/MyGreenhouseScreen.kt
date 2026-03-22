@@ -18,8 +18,8 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun MyGreenhouseScreen(
-    padding: PaddingValues,
-    userName: String // Now accepts the dynamic name from MainActivity
+    padding: PaddingValues, // This is the innerPadding from the Scaffold
+    userName: String
 ) {
     Column(
         modifier = Modifier
@@ -29,6 +29,7 @@ fun MyGreenhouseScreen(
             .verticalScroll(rememberScrollState())
             .padding(24.dp)
     ) {
+        Text("Welcome back, $userName", style = MaterialTheme.typography.bodyLarge)
         // 1. PROFESSIONAL USER HEADER (Now Dynamic)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
