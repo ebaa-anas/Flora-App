@@ -103,23 +103,36 @@ suspend fun saveProfileChanges(newName: String, newEmail: String): Boolean {
         } catch (e: Exception) { false }
     }
 }
-
-// 3. Main Activity
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sharedPref = getSharedPreferences("flora_prefs", android.content.Context.MODE_PRIVATE)
         val isFirstTime = sharedPref.getBoolean("is_first_time", true)
+
         setContent {
+            var isGift by remember { mutableStateOf(false) }
+            var giftNote by remember { mutableStateOf("") }
             var currentScreen by remember { mutableStateOf("loading") }
             var userName by remember { mutableStateOf("User") }
             var userEmail by remember { mutableStateOf("") }
             var isDarkMode by remember { mutableStateOf(false) }
             var selectedPlant by remember { mutableStateOf<Plant?>(null) }
-            val cartItems = remember { mutableStateListOf<Pair<Plant, String?>>() }
+
+            // 1. UPDATED DATA TYPE: Triple(Plant, PotType, Quantity)
+            val cartItems = remember { mutableStateListOf<Triple<Plant, String?, Int>>() }
+
             var showEditProfile by remember { mutableStateOf(false) }
+            var currentOrderAddress by remember { mutableStateOf("") }
             val scope = rememberCoroutineScope()
-            // 2. STARTUP LOGIC - Fetch real data immediately
+
+            // 2. CALCULATE TOTAL (Needed for PaymentScreen)
+            val subtotal = cartItems.sumOf { (plant, pot, qty) ->
+                val potFee = if (pot == "Ceramic") 15.0 else 0.0
+                (plant.price + potFee) * qty
+            }
+            val deliveryFee = if (subtotal >= 75.0 || cartItems.isEmpty()) 0.0 else 15.0
+            val finalTotal = subtotal + deliveryFee
+
             LaunchedEffect(Unit) {
                 val session = supabase.auth.currentSessionOrNull()
                 if (session != null) {
@@ -157,30 +170,78 @@ class MainActivity : ComponentActivity() {
                             onGoToLogin = { currentScreen = "login" },
                             signUpLogic = { e, p, n, ph -> signUpProfessional(e, p, n, ph) }
                         )
-                        currentScreen == "home" || currentScreen == "settings" || currentScreen == "my_plants" || currentScreen == "expert_chat" -> {
+
+                        // 3. MAIN NAV GROUP (Updated cartItems type)
+                        currentScreen == "home" || currentScreen == "settings" || currentScreen == "my_plants" || currentScreen == "expert_chat" || currentScreen == "cart" -> {
                             FloraMainContainer(
                                 userName = userName,
                                 userEmail = userEmail,
                                 cartItems = cartItems,
-                                cartItemsSize = cartItems.size,
                                 onPlantClick = { selectedPlant = it; currentScreen = "details" },
                                 currentNav = currentScreen,
                                 isDarkMode = isDarkMode,
                                 onToggleDark = { isDarkMode = it },
                                 onEditProfileRequested = { showEditProfile = true },
-                                onNavChange = { screen ->
-                                    currentScreen = screen
+                                onNavChange = { screen -> currentScreen = screen },
+                                isGift = isGift,
+                                onIsGiftChange = { isGift = it },
+                                giftNote = giftNote,
+                                onGiftNoteChange = { giftNote = it }
+                            )}
 
+
+                        currentScreen == "details" -> {
+                            if (selectedPlant != null) {
+                                PlantDetailsScreen(
+                                    plant = selectedPlant!!,
+                                    onBack = { currentScreen = "home"; selectedPlant = null },
+                                    onAddToCart = { pot ->
+                                        cartItems.add(Triple(selectedPlant!!, pot, 1))
+                                        currentScreen = "cart"
+                                        selectedPlant = null
+                                    }
+                                )
+                            }
+                        }
+
+                        currentScreen == "address" -> AddressScreen(
+                            onBack = { currentScreen = "cart" },
+                            onNext = { addressData ->
+                                currentOrderAddress = addressData
+                                currentScreen = "payment"
+                            }
+                        )
+
+                        currentScreen == "payment" -> {
+                            PaymentScreen(
+                                total = finalTotal,
+                                onBack = { currentScreen = "address" },
+                                onPaymentSuccess = {
+                                    scope.launch {
+                                        val userId = supabase.auth.currentUserOrNull()?.id ?: ""
+                                        val orderId = completePurchase(
+                                            userId = userId,
+                                            address = currentOrderAddress,
+                                            total = finalTotal,
+                                            isGift = isGift,
+                                            giftNote = giftNote,
+                                            // 4. FIX: pass Triple list to updated function
+                                            cartItems = cartItems
+                                        )
+                                        if (orderId != null) {
+                                            cartItems.clear()
+                                            currentScreen = "order_success"
+                                        }
+                                    }
                                 }
                             )
                         }
-                        currentScreen == "details" && selectedPlant != null -> {
-                            PlantDetailsScreen(plant = selectedPlant!!,
-                                onBack = { selectedPlant = null }, // This fixes the 'no value for onBack' error
-                                onAddToCart = { pot ->
-                                    cartItems.add(selectedPlant!! to pot)
-                                    selectedPlant = null
-                                })
+
+                        currentScreen == "order_success" -> {
+                            // Placeholder for your QR screen
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text("Order Success! QR coming soon.")
+                            }
                         }
                     }
 
@@ -201,174 +262,148 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun FloraMainContainer(
-    userName: String,
-    userEmail: String,
-    cartItemsSize: Int,
-    cartItems: SnapshotStateList<Pair<Plant, String?>>,
-    onPlantClick: (Plant) -> Unit,
-    currentNav: String,
-    onNavChange: (String) -> Unit,
-    isDarkMode: Boolean,
-    onToggleDark: (Boolean) -> Unit,
-    onEditProfileRequested: () -> Unit
-) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-
-    // 1. DATA FETCHING (The "Nervous System")
-    var supabasePlants by remember { mutableStateOf<List<Plant>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var showFilterSheet by remember { mutableStateOf(false) }
-    var activePetFilter by remember { mutableStateOf("All") }
-    var activeLightFilter by remember { mutableStateOf("All") }
-
-    // Re-fetch plants whenever the user comes back to Home
-    LaunchedEffect(Unit) {
-        supabasePlants = fetchPlants()
-        isLoading = false
-    }
-
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
-            ProfessionalSidebar(
-                userName = userName,
-                userEmail = userEmail,
-                currentNav = currentNav,
-                onNavChange = { screen ->
-                    onNavChange(screen)
-                    scope.launch { drawerState.close() }
-                }
-            )
-        }
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    fun FloraMainContainer(
+        userName: String,
+        userEmail: String,
+        cartItems: SnapshotStateList<Triple<Plant, String?, Int>>, // FIXED TYPE
+        onPlantClick: (Plant) -> Unit,
+        isGift: Boolean,
+        onIsGiftChange: (Boolean) -> Unit,
+        giftNote: String,
+        onGiftNoteChange: (String) -> Unit,
+        currentNav: String,
+        onNavChange: (String) -> Unit,
+        isDarkMode: Boolean,
+        onToggleDark: (Boolean) -> Unit,
+        onEditProfileRequested: () -> Unit
     ) {
-        Scaffold(
-            containerColor = MaterialTheme.colorScheme.background,
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = "Flora",
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { onNavChange("cart") }) {
-                            BadgedBox(
-                                badge = {
-                                    if (cartItemsSize > 0) Badge { Text(cartItemsSize.toString()) }
-                                }
-                            ) {
-                                Icon(Icons.Default.ShoppingCart, "Cart", tint = MaterialTheme.colorScheme.primary)
-                            }
-                        }
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
+
+        // Data Fetching
+        var supabasePlants by remember { mutableStateOf<List<Plant>>(emptyList()) }
+        var isLoading by remember { mutableStateOf(true) }
+        var showFilterSheet by remember { mutableStateOf(false) }
+        var activePetFilter by remember { mutableStateOf("All") }
+        var activeLightFilter by remember { mutableStateOf("All") }
+
+        LaunchedEffect(Unit) {
+            supabasePlants = fetchPlants()
+            isLoading = false
+        }
+
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ProfessionalSidebar(
+                    userName = userName,
+                    userEmail = userEmail,
+                    currentNav = currentNav,
+                    onNavChange = { screen ->
+                        onNavChange(screen)
+                        scope.launch { drawerState.close() }
                     }
                 )
             }
-        ) { innerPadding ->
-
-            // 2. OVERLAYS (Filters)
-            if (showFilterSheet) {
-                FilterBottomSheet(
-                    onDismiss = { showFilterSheet = false },
-                    onApply = { petSafety, lightLevel ->
-                        activePetFilter = petSafety
-                        activeLightFilter = lightLevel
-                        showFilterSheet = false
-                    }
-                )
-            }
-
-            // 3. THE SCREEN SWITCHER (This is where your separate files live)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding) // This prevents UI from being hidden under TopBar
-            ) {
-                // Use lowercase to prevent "Home" vs "home" mismatch errors
-                when (currentNav.lowercase()) {
-                    "home" -> {
-                        if (isLoading) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                            }
-                        } else {
-                            FloraHomeScreenContent(
-                                padding = PaddingValues(0.dp), // Padding already handled by Box
-                                plants = supabasePlants,
-                                onPlantClick = onPlantClick,
-                                onFilterClick = { showFilterSheet = true },
-                                appliedPetSafety = activePetFilter,
-                                appliedLight = activeLightFilter
+        ) {
+            Scaffold(
+                containerColor = MaterialTheme.colorScheme.background,
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                "Flora",
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.primary
                             )
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    "Menu",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { onNavChange("cart") }) {
+                                BadgedBox(badge = { if (cartItems.size > 0) Badge { Text(cartItems.size.toString()) } }) {
+                                    Icon(
+                                        Icons.Default.ShoppingCart,
+                                        "Cart",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
-                    }
+                    )
+                }
+            ) { innerPadding ->
+                Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                    // Navigation Logic
+                    when (currentNav.lowercase().replace(" ", "_")) {
+                        "home" -> {
+                            if (isLoading) {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                }
+                            } else {
+                                FloraHomeScreenContent(
+                                    padding = PaddingValues(0.dp),
+                                    plants = supabasePlants,
+                                    onPlantClick = onPlantClick,
+                                    onFilterClick = { showFilterSheet = true },
+                                    appliedPetSafety = activePetFilter,
+                                    appliedLight = activeLightFilter
+                                )
+                            }
+                        }
 
-                    // ACCESSING YOUR SEPARATE GREENHOUSE FILE
-                    "my_plants" -> {
-                        MyGreenhouseScreen(
+                        "my_plants" -> MyGreenhouseScreen(
                             padding = PaddingValues(0.dp),
                             userName = userName
                         )
-                    }
 
-                    // ACCESSING YOUR SEPARATE EXPERT CHAT FILE
-                    "expert_chat" -> {
-                        ExpertChatScreen(
-                            onBack = { onNavChange("home") }
-                        )
-                    }
+                        "expert_chat" -> ExpertChatScreen(onBack = { onNavChange("home") })
 
-                    // ACCESSING YOUR SEPARATE SETTINGS FILE
-                    "settings" -> {
-                        SettingsScreen(
-                            padding = PaddingValues(0.dp),
-                            onBack = { onNavChange("home") },
-                            onLogout = {
-                                // Logic to clear Supabase session can go here
-                                onNavChange("login")
-                            },
-                            isDark = isDarkMode,
-                            onToggleDark = onToggleDark,
-                            onEditProfile = onEditProfileRequested
-                        )
-                    }
-
-                    // ACCESSING YOUR SEPARATE CART FILE
-                    "cart" -> {
-                        // Assuming your CartScreen is in its own file
-                        CartScreen(
+                        "settings" -> {
+                            SettingsScreen(
+                                padding = PaddingValues(0.dp),
+                                onBack = { onNavChange("home") },
+                                onLogout = { onNavChange("login") },
+                                isDark = isDarkMode,
+                                onToggleDark = onToggleDark,
+                                onEditProfile = onEditProfileRequested
+                            )
+                        }
+                        "cart" -> { CartScreen(
                             cartItems = cartItems,
+                            isGift = isGift,
+                            onIsGiftChange = { onIsGiftChange(it) }, // These need to be passed in
+                            giftNote = giftNote,
+                            onGiftNoteChange = { onGiftNoteChange(it) },
                             onBack = { onNavChange("home") },
-                            onCheckout = { onNavChange("Address") },
-                            onViewItem = { plant ->
-                                // This is required by your CartScreen.kt parameters
-                                // It allows the user to click a plant in the cart to see details again
-                                onPlantClick(plant)
-                            }
+                            onCheckout = { onNavChange("address") },
+                            onViewItem = { plant -> onPlantClick(plant) }
+                        )}
+                        "address" -> AddressScreen(
+                            onBack = { onNavChange("cart") },
+                            onNext = { onNavChange("PaymentScreen") }
                         )
-                    }
 
-                    // CATCH-ALL FOR DEVELOPMENT
-                    else -> {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Screen '$currentNav' is currently being updated.")
+
+                        else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Screen $currentNav not found.")
                         }
                     }
                 }
             }
         }
     }
-}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FloraHomeScreenContent(
@@ -701,4 +736,41 @@ fun EditProfileDialog(
         containerColor = Color.White,
         shape = RoundedCornerShape(28.dp)
     )
+}// 6. UPDATE PURCHASE FUNCTION
+suspend fun completePurchase(
+    userId: String,
+    address: String,
+    total: Double,
+    isGift: Boolean,
+    giftNote: String,
+    cartItems: List<Triple<Plant, String?, Int>> // FIXED TYPE
+): String? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val orderResponse = supabase.from("orders").insert(
+                mapOf(
+                    "user_id" to userId,
+                    "total_amount" to total,
+                    "address" to address,
+                    "is_gift" to isGift,
+                    "gift_note" to giftNote,
+                    "status" to "Processing"
+                )
+            ) { select() }.decodeSingle<Map<String, Any>>()
+
+            val orderId = orderResponse["id"].toString()
+
+            cartItems.forEach { (plant, pot, qty) ->
+                supabase.from("order_items").insert(
+                    mapOf(
+                        "order_id" to orderId,
+                        "plant_id" to plant.id,
+                        "quantity" to qty,
+                        "pot_type" to (pot ?: "Standard")
+                    )
+                )
+            }
+            orderId
+        } catch (e: Exception) { null }
+    }
 }

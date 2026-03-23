@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.sp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AddressScreen(onBack: () -> Unit, onNext: () -> Unit) {
+fun AddressScreen(onBack: () -> Unit, onNext: (String) -> Unit) {
     // State for structured inputs
     var fullName by remember { mutableStateOf("") }
     var street by remember { mutableStateOf("") }
@@ -100,7 +100,10 @@ fun AddressScreen(onBack: () -> Unit, onNext: () -> Unit) {
 
             // UI IMPROVEMENT: Professional Button with Theme elevation
             Button(
-                onClick = onNext,
+                onClick = {
+                    val fullAddress = "$street, Bldg $building, Floor $floor"
+                    onNext(fullAddress) // Pass the data back to MainActivity
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 24.dp)

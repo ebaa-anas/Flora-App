@@ -1,8 +1,10 @@
 package com.example.myapplication
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -10,49 +12,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.myapplication.model.Plant
-
-
 @Composable
-fun HomeScreen(onFetch: suspend () -> List<Plant>) {
-    // State: The "Brain" of the screen
-    var plants by remember { mutableStateOf<List<Plant>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-
-    // Logic: Fetch data once when screen opens
-    LaunchedEffect(Unit) {
-        try {
-            plants = onFetch()
-        } catch (e: Exception) {
-            errorMessage = e.message
-        } finally {
-            isLoading = false
-        }
-    }
-
-    // UI: What the user sees
-    Scaffold(
-        topBar = { Text("Flora Istanbul", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp)) }
-    ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (isLoading) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            } else if (errorMessage != null) {
-                Text("Error: $errorMessage", modifier = Modifier.align(Alignment.Center))
-            } else {
-                LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    items(plants) { plant ->
-                        PlantCard(plant)
-                    }
+fun HomeScreen(
+    padding: PaddingValues, // Receive padding from the MainContainer's Scaffold
+    plants: List<Plant>,    // Pass data directly instead of fetching again
+    onPlantClick: (Plant) -> Unit
+) {
+    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        if (plants.isEmpty()) {
+            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(plants) { plant ->
+                    // Use a clickable card to trigger your Details screen
+                    PlantCard(plant, onClick = { onPlantClick(plant) })
                 }
             }
         }
     }
 }
-
 @Composable
-fun PlantCard(plant: Plant) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+fun PlantCard(plant: Plant, onClick: () -> Unit) { // Added onClick parameter here
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }, // Now the card can actually be clicked!
+        shape = RoundedCornerShape(16.dp), // Keeping your design consistent
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
                 model = plant.imageUrl,

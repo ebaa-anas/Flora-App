@@ -1,7 +1,6 @@
 package com.example.myapplication
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,157 +26,136 @@ import com.example.myapplication.model.Plant
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CartScreen(
-    cartItems: MutableList<Pair<Plant, String?>>,
+    cartItems: MutableList<Triple<Plant, String?, Int>>,
+    isGift: Boolean,
+    onIsGiftChange: (Boolean) -> Unit,
+    giftNote: String,
+    onGiftNoteChange: (String) -> Unit,
     onBack: () -> Unit,
     onCheckout: () -> Unit,
     onViewItem: (Plant) -> Unit
 ) {
-    var isGift by remember { mutableStateOf(false) }
-    var giftNote by remember { mutableStateOf("") }
 
-    // 1. DYNAMIC QUANTITY TRACKER
-    // We use a Map to track quantities for each index in the cart
-    val itemQuantities = remember { mutableStateMapOf<Int, Int>() }
-
-    // Initialize quantities to 1 if not already set
-    cartItems.indices.forEach { index ->
-        if (!itemQuantities.containsKey(index)) itemQuantities[index] = 1
-    }
-
-    // 2. DYNAMIC TOTALS (Now recalculates when quantities change)
-    val subtotal by remember(cartItems, itemQuantities.toMap()) {
+    // 1. DYNAMIC TOTALS (Including the $5 Pot Fee)
+    val subtotal by remember(cartItems) {
         derivedStateOf {
-            cartItems.indices.sumOf { index ->
-                val plant = cartItems[index].first
-                val qty = itemQuantities[index] ?: 1
-                plant.price * qty
+            cartItems.sumOf { (plant, potType, qty) ->
+                val potFee = if (potType == "Ceramic") 15.0 else 0.0
+                (plant.price + potFee) * qty
             }
         }
     }
 
-    val freeDeliveryThreshold = 75.0 // Set to your desired goal
+    val freeDeliveryThreshold = 75.0
     val shippingFee = if (subtotal >= freeDeliveryThreshold || cartItems.isEmpty()) 0.0 else 15.0
     val finalTotal = subtotal + shippingFee
 
-    Scaffold(
-        containerColor = MaterialTheme.colorScheme.background,
-        topBar = {
-            TopAppBar(
-                title = { Text("My Shopping Cart", fontWeight = FontWeight.Black) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
 
-            // 3. THE LIVE PROGRESS BAR
-            if (cartItems.isNotEmpty()) {
-                val progress = (subtotal / freeDeliveryThreshold).coerceIn(0.0, 1.0).toFloat()
-                val remaining = freeDeliveryThreshold - subtotal
-
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = if (subtotal >= freeDeliveryThreshold) "Free Delivery Unlocked! 🌿"
-                            else "Add $${String.format("%.2f", remaining)} for Free Delivery",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (subtotal >= freeDeliveryThreshold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                        )
-                    }
-                }
-            }
-
-            LazyColumn(
-                modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+        // Progress Bar
+        if (cartItems.isNotEmpty()) {
+            val progress = (subtotal / freeDeliveryThreshold).coerceIn(0.0, 1.0).toFloat()
+            val remaining = freeDeliveryThreshold - subtotal
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(20.dp)
             ) {
-                itemsIndexed(cartItems) { index, item ->
-                    val currentQty = itemQuantities[index] ?: 1
-
-                    CartItemCard(
-                        plant = item.first,
-                        quantity = currentQty,
-                        onQuantityChange = { newQty -> itemQuantities[index] = newQty },
-                        onRemove = {
-                            cartItems.removeAt(index)
-                            itemQuantities.remove(index)
-                        },
-                        onViewDetail = { onViewItem(item.first) }
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = if (subtotal >= freeDeliveryThreshold) "Free Delivery Unlocked! 🌿"
+                        else "Add $${String.format("%.2f", remaining)} for Free Delivery",
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        color = if (subtotal >= freeDeliveryThreshold) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
-                item { Spacer(modifier = Modifier.height(24.dp)) }
             }
+        }
+        // List of Items
+        LazyColumn(
+            modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            itemsIndexed(cartItems) { index, item ->
+                // DESTRICTURING: This defines plant, potType, and qty for this specific row
+                val (plant, potType, qty) = item
 
-            // 4. STICKY SUMMARY
-            Surface(
-                tonalElevation = 8.dp,
-                shadowElevation = 20.dp,
-                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Column(modifier = Modifier.padding(24.dp)) {
-                    // Gift Wrap Toggle
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.CardGiftcard, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Add gift wrap & personal note", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                        Switch(checked = isGift, onCheckedChange = { isGift = it })
-                    }
-
-                    if (isGift) {
-                        OutlinedTextField(
-                            value = giftNote, onValueChange = { giftNote = it },
-                            placeholder = { Text("Enter your message...") },
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                            shape = RoundedCornerShape(16.dp)
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.05f))
-
-                    PriceRow(label = "Subtotal", amount = subtotal)
-                    PriceRow(label = "Delivery Fee", amount = shippingFee, isFree = subtotal >= freeDeliveryThreshold)
-
-                    Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Total Amount", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("$${String.format("%.2f", finalTotal)}", fontSize = 26.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
-                    }
-
-                    Button(
-                        onClick = onCheckout,
-                        modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(64.dp),
-                        shape = RoundedCornerShape(22.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White)
-                    ) {
-                        Text("Secure Checkout", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                    }
+                CartItemCard(
+                    plant = plant,
+                    quantity = qty,
+                    selectedPot = potType,
+                    onPotChange = { newPot ->
+                        // Use the 'plant' and 'qty' we just extracted above
+                        cartItems[index] = Triple(plant, newPot, qty)
+                    },
+                    onQuantityChange = { newQty ->
+                        // Use the 'plant' and 'potType' we just extracted above
+                        cartItems[index] = Triple(plant, potType, newQty)
+                    },
+                    onRemove = {
+                        cartItems.removeAt(index)
+                    },
+                    onViewDetail = { onViewItem(plant) }
+                )
+            }
+            item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+        // Bottom Summary
+        Surface(
+            tonalElevation = 8.dp,
+            shadowElevation = 20.dp,
+            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+            color = MaterialTheme.colorScheme.surface
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.CardGiftcard, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Add gift wrap & personal note", modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    Switch(
+                        checked = isGift,
+                        onCheckedChange = onIsGiftChange
+                    )
+                }
+                if (isGift) {
+                    OutlinedTextField(
+                        value = giftNote,
+                        onValueChange = onGiftNoteChange,
+                        placeholder = { Text("Enter your message...") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+                }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+                PriceRow(label = "Subtotal", amount = subtotal)
+                PriceRow(label = "Delivery Fee", amount = shippingFee, isFree = subtotal >= freeDeliveryThreshold)
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Total Amount", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("$${String.format("%.2f", finalTotal)}", fontSize = 26.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                }
+                Button(
+                    onClick = onCheckout,
+                    modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(64.dp),
+                    shape = RoundedCornerShape(22.dp)
+                ) {
+                    Text("Secure Checkout", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                 }
             }
         }
     }
 }
-
 @Composable
 fun CartItemCard(
     plant: Plant,
     quantity: Int,
+    selectedPot: String?,
+    onPotChange: (String) -> Unit,
     onQuantityChange: (Int) -> Unit,
     onRemove: () -> Unit,
     onViewDetail: () -> Unit
@@ -185,8 +163,7 @@ fun CartItemCard(
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onViewDetail() },
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
@@ -198,34 +175,57 @@ fun CartItemCard(
 
             Spacer(modifier = Modifier.width(16.dp))
 
+            // --- ADD THE CODE HERE ---
             Column(modifier = Modifier.weight(1f)) {
-                Text(plant.name, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("$${plant.price}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold)
+                // 1. Calculate the real-time price for THIS specific row
+                val potFee = if (selectedPot == "Ceramic") 15.0 else 0.0
+                val unitPrice = plant.price + potFee
+                val itemTotal = unitPrice * quantity
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Text(plant.name, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+
+                // 2. Display the calculated Total (Plant + Pot * Qty)
+                Text(
+                    text = "$${String.format("%.2f", itemTotal)}",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.ExtraBold
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // POT SELECTOR (Displays the preference)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Pot: ", fontSize = 12.sp, color = Color.Gray)
+                    Text(
+                        text = selectedPot ?: "Standard",
+                        modifier = Modifier.clickable {
+                            onPotChange(if (selectedPot == "Ceramic") "Standard" else "Ceramic")
+                        },
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
 
                 // QUANTITY PICKER
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp)).padding(2.dp)
-                ) {
-                    IconButton(onClick = { if (quantity > 1) onQuantityChange(quantity - 1) }, modifier = Modifier.size(32.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { if (quantity > 1) onQuantityChange(quantity - 1) }) {
                         Icon(Icons.Rounded.Remove, null, tint = MaterialTheme.colorScheme.primary)
                     }
-                    Text("$quantity", modifier = Modifier.padding(horizontal = 12.dp), fontWeight = FontWeight.ExtraBold)
-                    IconButton(onClick = { onQuantityChange(quantity + 1) }, modifier = Modifier.size(32.dp)) {
+                    Text("$quantity", fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { onQuantityChange(quantity + 1) }) {
                         Icon(Icons.Rounded.Add, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
+            // --- END OF ADDED CODE ---
 
-            IconButton(onClick = onRemove, modifier = Modifier.background(Color(0xFFFFEBEE).copy(alpha = 0.1f), CircleShape)) {
-                Icon(Icons.Rounded.DeleteOutline, "Remove", tint = Color(0xFFE63946))
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Rounded.DeleteOutline, null, tint = Color.Red)
             }
         }
     }
 }
-
 @Composable
 fun PriceRow(label: String, amount: Double, isFree: Boolean = false) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
