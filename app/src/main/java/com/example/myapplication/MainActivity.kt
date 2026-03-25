@@ -1,18 +1,26 @@
 package com.example.myapplication
 
 import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.*
@@ -23,12 +31,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.edit
 import coil.compose.AsyncImage
 import com.example.myapplication.auth.LoginScreen
 import com.example.myapplication.auth.SignUpScreen
+import com.example.myapplication.model.OrderItemRequest
+import com.example.myapplication.model.OrderRequest
 import com.example.myapplication.model.Plant
 import com.example.myapplication.ui.theme.MyApplicationTheme
 import io.github.jan.supabase.createSupabaseClient
@@ -50,13 +62,17 @@ val supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_KEY) {
     install(Auth)
 }
 
-data class PromoItem(val tag: String, val title: String, val bgColor: Color, val imageUrl: String)
-
-// 2. Global Logic
+// --- GLOBAL BACKEND LOGIC ---
 suspend fun fetchPlants(): List<Plant> = withContext(Dispatchers.IO) {
     try { supabase.from("plants").select().decodeList<Plant>() }
-    catch (e: Exception) { emptyList() }
+    catch (e: Exception) { 
+        Log.e("SupabaseError", "Fetch Plants Failed: ${e.message}")
+        emptyList() 
+    }
 }
+
+data class PromoItem(val tag: String, val title: String, val bgColor: Color, val imageUrl: String)
+
 
 suspend fun loginProfessional(email: String, pass: String): String? {
     return withContext(Dispatchers.IO) {
@@ -70,7 +86,10 @@ suspend fun loginProfessional(email: String, pass: String): String? {
                 .select { filter { eq("id", userId!!) } }
                 .decodeSingleOrNull<Map<String, String>>()
             profile?.get("full_name")?.replace("\"", "")
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { 
+            Log.e("SupabaseError", "Login Failed: ${e.message}")
+            null 
+        }
     }
 }
 
@@ -85,7 +104,10 @@ suspend fun signUpProfessional(email: String, pass: String, name: String, phone:
                 )
             }
             true
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { 
+            Log.e("SupabaseError", "Signup Failed: ${e.message}")
+            false 
+        }
     }
 }
 
@@ -100,32 +122,43 @@ suspend fun saveProfileChanges(newName: String, newEmail: String): Boolean {
                 }) { filter { eq("id", user.id) } }
                 true
             } else false
-        } catch (e: Exception) { false }
+        } catch (e: Exception) { 
+            Log.e("SupabaseError", "Update Profile Failed: ${e.message}")
+            false 
+        }
     }
 }
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val sharedPref = getSharedPreferences("flora_prefs", android.content.Context.MODE_PRIVATE)
+        val sharedPref = getSharedPreferences("flora_prefs", MODE_PRIVATE)
         val isFirstTime = sharedPref.getBoolean("is_first_time", true)
 
         setContent {
-            var isGift by remember { mutableStateOf(false) }
-            var giftNote by remember { mutableStateOf("") }
-            var currentScreen by remember { mutableStateOf("loading") }
+            val context = LocalContext.current
+            
+            // --- ALL YOUR HOISTED STATES ---
+            var currentScreen by remember { mutableStateOf("home") }
             var userName by remember { mutableStateOf("User") }
             var userEmail by remember { mutableStateOf("") }
             var isDarkMode by remember { mutableStateOf(false) }
             var selectedPlant by remember { mutableStateOf<Plant?>(null) }
-
-            // 1. UPDATED DATA TYPE: Triple(Plant, PotType, Quantity)
-            val cartItems = remember { mutableStateListOf<Triple<Plant, String?, Int>>() }
-
-            var showEditProfile by remember { mutableStateOf(false) }
+            var lastOrderId by remember { mutableStateOf("") }
+            var currentOrderPhone by remember { mutableStateOf("") }
             var currentOrderAddress by remember { mutableStateOf("") }
+            var isGift by remember { mutableStateOf(false) }
+            var giftNote by remember { mutableStateOf("") }
+            var showEditProfile by remember { mutableStateOf(false) }
+
+            // Persistence for Success Screen
+            var successOrderTotal by remember { mutableDoubleStateOf(0.0) }
+            var successOrderAddress by remember { mutableStateOf("") }
+
+            val cartItems = remember { mutableStateListOf<Triple<Plant, String?, Int>>() }
             val scope = rememberCoroutineScope()
 
-            // 2. CALCULATE TOTAL (Needed for PaymentScreen)
+            // --- CALCULATIONS ---
             val subtotal = cartItems.sumOf { (plant, pot, qty) ->
                 val potFee = if (pot == "Ceramic") 15.0 else 0.0
                 (plant.price + potFee) * qty
@@ -133,6 +166,7 @@ class MainActivity : ComponentActivity() {
             val deliveryFee = if (subtotal >= 75.0 || cartItems.isEmpty()) 0.0 else 15.0
             val finalTotal = subtotal + deliveryFee
 
+            // --- STARTUP LOGIC ---
             LaunchedEffect(Unit) {
                 val session = supabase.auth.currentSessionOrNull()
                 if (session != null) {
@@ -154,49 +188,48 @@ class MainActivity : ComponentActivity() {
 
             MyApplicationTheme(darkTheme = isDarkMode) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    when {
-                        currentScreen == "onboarding" -> OnboardingScreen {
-                            sharedPref.edit().putBoolean("is_first_time", false).apply()
+                    when (currentScreen) {
+                        "onboarding" -> OnboardingScreen {
+                            sharedPref.edit { putBoolean("is_first_time", false) }
                             currentScreen = "welcome"
                         }
-                        currentScreen == "welcome" -> WelcomeScreen { currentScreen = "login" }
-                        currentScreen == "login" -> LoginScreen(
+                        "welcome" -> WelcomeScreen { currentScreen = "login" }
+                        "login" -> LoginScreen(
                             onLoginSuccess = { name -> userName = name; currentScreen = "home" },
                             onGoToSignup = { currentScreen = "signup" },
                             loginLogic = { e, p -> loginProfessional(e, p) }
                         )
-                        currentScreen == "signup" -> SignUpScreen(
+                        "signup" -> SignUpScreen(
                             onSignUpComplete = { name -> userName = name; currentScreen = "home" },
                             onGoToLogin = { currentScreen = "login" },
                             signUpLogic = { e, p, n, ph -> signUpProfessional(e, p, n, ph) }
                         )
 
-                        // 3. MAIN NAV GROUP (Updated cartItems type)
-                        currentScreen == "home" || currentScreen == "settings" || currentScreen == "my_plants" || currentScreen == "expert_chat" || currentScreen == "cart" -> {
+                        "home", "settings", "my_plants", "expert_chat", "cart", "my_orders" -> {
                             FloraMainContainer(
                                 userName = userName,
                                 userEmail = userEmail,
                                 cartItems = cartItems,
-                                onPlantClick = { selectedPlant = it; currentScreen = "details" },
-                                currentNav = currentScreen,
-                                isDarkMode = isDarkMode,
-                                onToggleDark = { isDarkMode = it },
-                                onEditProfileRequested = { showEditProfile = true },
-                                onNavChange = { screen -> currentScreen = screen },
                                 isGift = isGift,
                                 onIsGiftChange = { isGift = it },
                                 giftNote = giftNote,
-                                onGiftNoteChange = { giftNote = it }
-                            )}
+                                onGiftNoteChange = { giftNote = it },
+                                onPlantClick = { selectedPlant = it; currentScreen = "details" },
+                                currentNav = currentScreen,
+                                onNavChange = { screen -> currentScreen = screen },
+                                isDarkMode = isDarkMode,
+                                onToggleDark = { isDarkMode = it },
+                                onEditProfileRequested = { showEditProfile = true }
+                            )
+                        }
 
-
-                        currentScreen == "details" -> {
-                            if (selectedPlant != null) {
+                        "details" -> {
+                            selectedPlant?.let { plant ->
                                 PlantDetailsScreen(
-                                    plant = selectedPlant!!,
+                                    plant = plant,
                                     onBack = { currentScreen = "home"; selectedPlant = null },
                                     onAddToCart = { pot ->
-                                        cartItems.add(Triple(selectedPlant!!, pot, 1))
+                                        cartItems.add(Triple(plant, pot, 1))
                                         currentScreen = "cart"
                                         selectedPlant = null
                                     }
@@ -204,44 +237,65 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        currentScreen == "address" -> AddressScreen(
+                        "address" -> AddressScreen(
                             onBack = { currentScreen = "cart" },
-                            onNext = { addressData ->
+                            onNext = { addressData, phoneData ->
                                 currentOrderAddress = addressData
+                                currentOrderPhone = phoneData
                                 currentScreen = "payment"
                             }
                         )
 
-                        currentScreen == "payment" -> {
-                            PaymentScreen(
-                                total = finalTotal,
-                                onBack = { currentScreen = "address" },
-                                onPaymentSuccess = {
-                                    scope.launch {
-                                        val userId = supabase.auth.currentUserOrNull()?.id ?: ""
-                                        val orderId = completePurchase(
-                                            userId = userId,
-                                            address = currentOrderAddress,
-                                            total = finalTotal,
-                                            isGift = isGift,
-                                            giftNote = giftNote,
-                                            // 4. FIX: pass Triple list to updated function
-                                            cartItems = cartItems
-                                        )
-                                        if (orderId != null) {
-                                            cartItems.clear()
-                                            currentScreen = "order_success"
+                        "payment" -> PaymentScreen(
+                            total = finalTotal,
+                            onBack = { currentScreen = "address" },
+                            onPaymentSuccess = { method ->
+                                scope.launch {
+                                    val user = supabase.auth.currentUserOrNull()
+                                    Log.d("CHECK_AUTH", "User ID is: ${user?.id}")
+                                    if (user == null) {
+                                        Toast.makeText(context, "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                                        currentScreen = "login"
+                                        return@launch
+                                    }
+                                    val orderId = completePurchase(
+                                        userId = user.id,
+                                        address = currentOrderAddress,
+                                        phone = currentOrderPhone,
+                                        paymentMethod = method,
+                                        total = finalTotal,
+                                        isGift = isGift,
+                                        giftNote = giftNote,
+                                        cartItems = cartItems.toList()
+                                    )
+
+                                    if (orderId != null) {
+                                        lastOrderId = orderId
+                                        cartItems.clear()
+                                        currentScreen = "order_success"
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, "Purchase failed. Check logs for SupabaseError.", Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 }
+                            }
+                        )
+
+                        "order_success" -> {
+                            OrderSuccessScreen(
+                                orderId = lastOrderId,
+                                total = successOrderTotal,
+                                address = successOrderAddress,
+                                onTrackOrder = { currentScreen = "tracking" },
+                                onGoHome = { currentScreen = "home" }
                             )
                         }
-
-                        currentScreen == "order_success" -> {
-                            // Placeholder for your QR screen
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text("Order Success! QR coming soon.")
-                            }
+                        "tracking" -> {
+                            TrackingScreen(
+                                orderId = lastOrderId,
+                                onBack = { currentScreen = "home" }
+                            )
                         }
                     }
 
@@ -262,147 +316,159 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-    @OptIn(ExperimentalMaterial3Api::class)
-    @Composable
-    fun FloraMainContainer(
-        userName: String,
-        userEmail: String,
-        cartItems: SnapshotStateList<Triple<Plant, String?, Int>>, // FIXED TYPE
-        onPlantClick: (Plant) -> Unit,
-        isGift: Boolean,
-        onIsGiftChange: (Boolean) -> Unit,
-        giftNote: String,
-        onGiftNoteChange: (String) -> Unit,
-        currentNav: String,
-        onNavChange: (String) -> Unit,
-        isDarkMode: Boolean,
-        onToggleDark: (Boolean) -> Unit,
-        onEditProfileRequested: () -> Unit
-    ) {
-        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-        val scope = rememberCoroutineScope()
 
-        // Data Fetching
-        var supabasePlants by remember { mutableStateOf<List<Plant>>(emptyList()) }
-        var isLoading by remember { mutableStateOf(true) }
-        var showFilterSheet by remember { mutableStateOf(false) }
-        var activePetFilter by remember { mutableStateOf("All") }
-        var activeLightFilter by remember { mutableStateOf("All") }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FloraMainContainer(
+    userName: String,
+    userEmail: String,
+    cartItems: SnapshotStateList<Triple<Plant, String?, Int>>,
+    onPlantClick: (Plant) -> Unit,
+    isGift: Boolean,
+    onIsGiftChange: (Boolean) -> Unit,
+    giftNote: String,
+    onGiftNoteChange: (String) -> Unit,
+    currentNav: String,
+    onNavChange: (String) -> Unit,
+    isDarkMode: Boolean,
+    onToggleDark: (Boolean) -> Unit,
+    onEditProfileRequested: () -> Unit
+) {
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
-        LaunchedEffect(Unit) {
-            supabasePlants = fetchPlants()
-            isLoading = false
+    // Data Fetching
+    var supabasePlants by remember { mutableStateOf<List<Plant>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    var activePetFilter by remember { mutableStateOf("All") }
+    var activeLightFilter by remember { mutableStateOf("All") }
+
+    LaunchedEffect(Unit) {
+        supabasePlants = fetchPlants()
+        isLoading = false
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ProfessionalSidebar(
+                userName = userName,
+                userEmail = userEmail,
+                currentNav = currentNav,
+                onNavChange = { screen ->
+                    onNavChange(screen)
+                    scope.launch { drawerState.close() }
+                }
+            )
         }
-
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                ProfessionalSidebar(
-                    userName = userName,
-                    userEmail = userEmail,
-                    currentNav = currentNav,
-                    onNavChange = { screen ->
-                        onNavChange(screen)
-                        scope.launch { drawerState.close() }
-                    }
-                )
-            }
-        ) {
-            Scaffold(
-                containerColor = MaterialTheme.colorScheme.background,
-                topBar = {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                "Flora",
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.primary
+    ) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            "Flora",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(
+                                Icons.Default.Menu,
+                                "Menu",
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        }
+                    },
+                    actions = {
+                        IconButton(onClick = { onNavChange("cart") }) {
+                            BadgedBox(badge = { if (cartItems.isNotEmpty()) Badge { Text(cartItems.size.toString()) } }) {
                                 Icon(
-                                    Icons.Default.Menu,
-                                    "Menu",
+                                    Icons.Default.ShoppingCart,
+                                    "Cart",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
-                        },
-                        actions = {
-                            IconButton(onClick = { onNavChange("cart") }) {
-                                BadgedBox(badge = { if (cartItems.size > 0) Badge { Text(cartItems.size.toString()) } }) {
-                                    Icon(
-                                        Icons.Default.ShoppingCart,
-                                        "Cart",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
                         }
-                    )
-                }
-            ) { innerPadding ->
-                Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                    // Navigation Logic
-                    when (currentNav.lowercase().replace(" ", "_")) {
-                        "home" -> {
-                            if (isLoading) {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                }
-                            } else {
-                                FloraHomeScreenContent(
-                                    padding = PaddingValues(0.dp),
-                                    plants = supabasePlants,
-                                    onPlantClick = onPlantClick,
-                                    onFilterClick = { showFilterSheet = true },
-                                    appliedPetSafety = activePetFilter,
-                                    appliedLight = activeLightFilter
-                                )
+                    }
+                )
+            }
+        ) { innerPadding ->
+            Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                // Navigation Logic
+                when (currentNav.lowercase().replace(" ", "_")) {
+                    "home" -> {
+                        if (isLoading) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                             }
-                        }
-
-                        "my_plants" -> MyGreenhouseScreen(
-                            padding = PaddingValues(0.dp),
-                            userName = userName
-                        )
-
-                        "expert_chat" -> ExpertChatScreen(onBack = { onNavChange("home") })
-
-                        "settings" -> {
-                            SettingsScreen(
+                        } else {
+                            FloraHomeScreenContent(
                                 padding = PaddingValues(0.dp),
-                                onBack = { onNavChange("home") },
-                                onLogout = { onNavChange("login") },
-                                isDark = isDarkMode,
-                                onToggleDark = onToggleDark,
-                                onEditProfile = onEditProfileRequested
+                                plants = supabasePlants,
+                                onPlantClick = onPlantClick,
+                                onFilterClick = { showFilterSheet = true },
+                                appliedPetSafety = activePetFilter,
+                                appliedLight = activeLightFilter
                             )
                         }
-                        "cart" -> { CartScreen(
-                            cartItems = cartItems,
-                            isGift = isGift,
-                            onIsGiftChange = { onIsGiftChange(it) }, // These need to be passed in
-                            giftNote = giftNote,
-                            onGiftNoteChange = { onGiftNoteChange(it) },
+                    }
+
+                    "my_plants" -> MyGreenhouseScreen(
+                        padding = PaddingValues(0.dp),
+                        userName = userName
+                    )
+
+                    "expert_chat" -> ExpertChatScreen(onBack = { onNavChange("home") })
+
+                    "my_orders" -> OrderHistoryScreen(
+                        onBack = { onNavChange("home") },
+                        onTrackOrder = { /* Track Order Logic */ }
+                    )
+
+                    "settings" -> {
+                        SettingsScreen(
+                            padding = PaddingValues(0.dp),
                             onBack = { onNavChange("home") },
-                            onCheckout = { onNavChange("address") },
-                            onViewItem = { plant -> onPlantClick(plant) }
-                        )}
-                        "address" -> AddressScreen(
-                            onBack = { onNavChange("cart") },
-                            onNext = { onNavChange("PaymentScreen") }
+                            onLogout = { onNavChange("login") },
+                            isDark = isDarkMode,
+                            onToggleDark = onToggleDark,
+                            onEditProfile = onEditProfileRequested
                         )
+                    }
+                    "cart" -> { CartScreen(
+                        cartItems = cartItems,
+                        isGift = isGift,
+                        onIsGiftChange = onIsGiftChange,
+                        giftNote = giftNote,
+                        onGiftNoteChange = onGiftNoteChange,
+                        onBack = { onNavChange("home") },
+                        onCheckout = { onNavChange("address") },
+                        onViewItem = onPlantClick
+                    )}
 
-
-                        else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("Screen $currentNav not found.")
-                        }
+                    else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Screen $currentNav not found.")
                     }
                 }
             }
         }
     }
+
+    if (showFilterSheet) {
+        FilterBottomSheet(
+            onDismiss = { showFilterSheet = false },
+            onApply = { pet, light ->
+                activePetFilter = pet
+                activeLightFilter = light
+                showFilterSheet = false
+            }
+        )
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -414,18 +480,14 @@ fun FloraHomeScreenContent(
     appliedPetSafety: String = "All",
     appliedLight: String = "All"
 ) {
-    // 1. LOCAL SEARCH STATE
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
 
-    // 2. FILTER LOGIC
     val filteredPlants = plants.filter { plant ->
         val matchesSearch = plant.name.contains(searchQuery, ignoreCase = true)
         val matchesCategory = selectedCategory == "All" || plant.category == selectedCategory
 
-        // Note: For Pet Safety and Light to work, these columns must exist in your Plant model/DB
-        // If they don't exist yet, this part will just show all plants
-        val matchesPet = appliedPetSafety == "All" || (appliedPetSafety.contains("Pet Friendly") && plant.isPetSafe == true)
+        val matchesPet = appliedPetSafety == "All" || (appliedPetSafety.contains("Pet Friendly") && plant.isPetSafe)
         val matchesLight = appliedLight == "All" || plant.light == appliedLight
 
         matchesSearch && matchesCategory && matchesPet && matchesLight
@@ -476,7 +538,6 @@ fun FloraHomeScreenContent(
                 }
             }
         }
-        // 3. SEARCH & HEADER SECTION (Now Functional)
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp)) {
             Text("Discover your\nperfect greenery",
                 style = MaterialTheme.typography.headlineLarge.copy(
@@ -496,7 +557,6 @@ fun FloraHomeScreenContent(
                         Icon(Icons.Default.Search, contentDescription = null, tint = Color.Gray)
                         Spacer(modifier = Modifier.width(12.dp))
 
-                        // ADDED: Real TextField for Searching
                         BasicTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
@@ -518,14 +578,13 @@ fun FloraHomeScreenContent(
             }
         }
 
-        // 4. CATEGORY CHIPS (Now Functional)
         LazyRow( contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.padding(bottom = 16.dp)) {
             items(listOf("All", "Indoor", "Outdoor", "Seeds")) { category ->
                 val isSelected = selectedCategory == category
                 Surface(
-                    onClick = { selectedCategory = category }, // ADDED: Click logic
+                    onClick = { selectedCategory = category },
                     shape = RoundedCornerShape(16.dp),
                     color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
                     border = if (!isSelected) BorderStroke(1.dp, Color.LightGray.copy(0.3f)) else null
@@ -537,7 +596,6 @@ fun FloraHomeScreenContent(
             }
         }
 
-        // 5. DATA GRID (Now uses filteredPlants)
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             filteredPlants.chunked(2).forEach { plantPair ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -551,6 +609,7 @@ fun FloraHomeScreenContent(
         }
     }
 }
+
 @Composable
 fun PromoBannerCard(item: PromoItem) {
     Card(modifier = Modifier.fillMaxSize(), shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = item.bgColor)) {
@@ -565,79 +624,17 @@ fun PromoBannerCard(item: PromoItem) {
 }
 
 @Composable
-fun ModernPlantCard(plant: Plant, onClick: (Plant) -> Unit, modifier: Modifier) {
-    Card(
-        modifier = modifier.clickable { onClick(plant) },
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp)
-    ) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            AsyncImage(model = plant.imageUrl, contentDescription = null, modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(24.dp)), contentScale = ContentScale.Crop)
-            Column(modifier = Modifier.padding(12.dp)) {
-                Text(plant.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("$${plant.price}", fontWeight = FontWeight.Black, fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
-                    Box(modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun OwnedPlantItem(name: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(2.dp),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(60.dp).background(MaterialTheme.colorScheme.background, CircleShape), contentAlignment = Alignment.Center) { Text("🌿") }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(name, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                LinearProgressIndicator(progress = 0.4f, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = MaterialTheme.colorScheme.primary)
-                Text("Next water in 3 days", fontSize = 12.sp, color = Color.Gray)
-            }
-        }
-    }
-}
-
-@Composable
-fun MyPlantsScreen(padding: PaddingValues) {
-    Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
-        Card(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEC)), shape = RoundedCornerShape(16.dp)) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Notifications, null, tint = Color(0xFFE67E22))
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text("Care Alert", fontWeight = FontWeight.Bold, color = Color(0xFF1B4332))
-                    Text("Your Monstera needs water today!", fontSize = 14.sp)
-                }
-            }
-        }
-        Text("Active Collection", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B4332))
-        Spacer(modifier = Modifier.height(16.dp))
-        listOf("Monstera Deliciosa", "Calathea Medallion").forEach { plantName -> OwnedPlantItem(plantName); Spacer(modifier = Modifier.height(12.dp)) }
-        Button(onClick = { }, modifier = Modifier.fillMaxWidth().padding(top = 24.dp).height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF52B788)), shape = RoundedCornerShape(16.dp)) {
-            Icon(Icons.Default.Search, null); Spacer(modifier = Modifier.width(8.dp)); Text("AI Plant Diagnosis")
-        }
-    }
-}@Composable
 fun ProfessionalSidebar(userName: String, userEmail: String, currentNav: String, onNavChange: (String) -> Unit) {
     ModalDrawerSheet(
-        modifier = Modifier.width(310.dp).fillMaxHeight(), // Forces full height
+        modifier = Modifier.width(310.dp).fillMaxHeight(),
         drawerContainerColor = Color(0xFF081C15),
         drawerContentColor = Color.White
     ) {
         Column(
             modifier = Modifier
-                .fillMaxSize() // Fills the drawer area
+                .fillMaxSize()
                 .padding(24.dp)
         ) {
-            // 1. Profile Header
             Box(
                 modifier = Modifier
                     .size(70.dp)
@@ -655,31 +652,31 @@ fun ProfessionalSidebar(userName: String, userEmail: String, currentNav: String,
 
             Spacer(modifier = Modifier.height(40.dp))
 
-            // 2. The List (Back to Normal)
-            // Use a Column to stack them vertically
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SidebarItem(Icons.Default.Home, "Home", currentNav == "home") { onNavChange("home") }
                 SidebarItem(Icons.Default.Star, "My Greenhouse", currentNav == "my_plants") { onNavChange("my_plants") }
                 SidebarItem(Icons.Default.Call, "Expert Support", currentNav == "expert_chat") { onNavChange("expert_chat") }
-                SidebarItem(Icons.Default.List, "My Orders", currentNav == "my_orders") { onNavChange("my_orders") }
+                SidebarItem(Icons.AutoMirrored.Filled.List, "My Orders", currentNav == "my_orders") { onNavChange("my_orders") }
                 SidebarItem(Icons.Default.ShoppingCart, "My Cart", currentNav == "cart") { onNavChange("cart") }
                 SidebarItem(Icons.Default.Settings, "Settings", currentNav == "settings") { onNavChange("settings") }
             }
         }
     }
 }
+
 @Composable
 fun SidebarItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, isSelected: Boolean, onClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(if (isSelected) Color(0xFF2D6A4F) else Color.Transparent).clickable { onClick() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = Color.White); Spacer(modifier = Modifier.width(16.dp)); Text(label, color = Color.White)
     }
 }
+
 @Composable
 fun EditProfileDialog(
     currentName: String,
     currentEmail: String,
     onDismiss: () -> Unit,
-    onSaveSuccess: (String, String) -> Unit // Pass updated data back to UI
+    onSaveSuccess: (String, String) -> Unit
 ) {
     var tempName by remember { mutableStateOf(currentName) }
     var tempEmail by remember { mutableStateOf(currentEmail) }
@@ -687,7 +684,7 @@ fun EditProfileDialog(
     val scope = rememberCoroutineScope()
 
     AlertDialog(
-        onDismissRequest = {if (!isUpdating) onDismiss()}, // Block dismiss while loading
+        onDismissRequest = {if (!isUpdating) onDismiss()},
         confirmButton = {
             if (isUpdating) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -736,41 +733,59 @@ fun EditProfileDialog(
         containerColor = Color.White,
         shape = RoundedCornerShape(28.dp)
     )
-}// 6. UPDATE PURCHASE FUNCTION
+}
 suspend fun completePurchase(
     userId: String,
     address: String,
+    phone: String,
+    paymentMethod: String,
     total: Double,
     isGift: Boolean,
     giftNote: String,
-    cartItems: List<Triple<Plant, String?, Int>> // FIXED TYPE
+    cartItems: List<Triple<Plant, String?, Int>>
 ): String? {
     return withContext(Dispatchers.IO) {
         try {
-            val orderResponse = supabase.from("orders").insert(
-                mapOf(
-                    "user_id" to userId,
-                    "total_amount" to total,
-                    "address" to address,
-                    "is_gift" to isGift,
-                    "gift_note" to giftNote,
-                    "status" to "Processing"
-                )
-            ) { select() }.decodeSingle<Map<String, Any>>()
+            // 1. Prepare the Order Data using your OrderRequest model
+            val orderData = OrderRequest(
+                user_id = userId,
+                total_amount = total,
+                address = address,
+                phone_number = phone,
+                payment_method = paymentMethod,
+                is_gift = isGift,
+                gift_note = giftNote
+            )
 
-            val orderId = orderResponse["id"].toString()
+            // 2. Insert Order and decode using JsonElement to prevent "Unexpected Token" errors
+            val orderResponse = supabase.from("orders")
+                .insert(orderData) {
+                    select()
+                }
+                .decodeSingle<Map<String, kotlinx.serialization.json.JsonElement>>()
 
+            // 3. Safely extract the ID and remove any quotes
+            val rawOrderId = orderResponse["id"]?.toString() ?: return@withContext null
+            val orderId = rawOrderId.replace("\"", "")
+
+            // 4. Insert each Cart Item using your OrderItemRequest model
             cartItems.forEach { (plant, pot, qty) ->
-                supabase.from("order_items").insert(
-                    mapOf(
-                        "order_id" to orderId,
-                        "plant_id" to plant.id,
-                        "quantity" to qty,
-                        "pot_type" to (pot ?: "Standard")
-                    )
+                val itemData = OrderItemRequest(
+                    order_id = orderId,
+                    plant_id = plant.id ?: 0L,
+                    quantity = qty,
+                    pot_type = pot ?: "Standard"
                 )
+                supabase.from("order_items").insert(itemData)
             }
-            orderId
-        } catch (e: Exception) { null }
+
+            Log.d("SupabaseSuccess", "Order successfully stored with ID: $orderId")
+            orderId // Returns the clean ID to MainActivity to trigger the Success Screen
+
+        } catch (e: Exception) {
+            Log.e("SupabaseError", "Detailed Failure: ${e.message}")
+            e.printStackTrace()
+            null
+        }
     }
 }

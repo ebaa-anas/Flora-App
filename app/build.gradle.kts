@@ -44,6 +44,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation(libs.androidx.core.ktx)
+    implementation("com.google.zxing:core:3.5.1")
     implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -55,7 +56,7 @@ dependencies {
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.0")
     implementation("io.github.jan-tennert.supabase:realtime-kt:2.5.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
     // Ktor (The engine that drives the internet connection)
     implementation("io.ktor:ktor-client-android:2.3.11")
     implementation("androidx.compose.foundation:foundation:1.6.0")

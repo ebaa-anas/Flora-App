@@ -1,10 +1,13 @@
 package com.example.myapplication
 
+import android.util.Log
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -16,13 +19,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.jan.supabase.gotrue.auth
+import io.github.jan.supabase.postgrest.from
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PaymentScreen(total: Double, onBack: () -> Unit, onPaymentSuccess: () -> Unit) {
+fun PaymentScreen(
+    total: Double,
+    onBack: () -> Unit,
+    onPaymentSuccess: (String) -> Unit
+) {
+    // 1. STATE MANAGEMENT
     var selectedMethod by remember { mutableStateOf("card") }
     var cardNumber by remember { mutableStateOf("") }
     var cardHolder by remember { mutableStateOf("") }
@@ -30,29 +42,51 @@ fun PaymentScreen(total: Double, onBack: () -> Unit, onPaymentSuccess: () -> Uni
     var cvv by remember { mutableStateOf("") }
     var saveCard by remember { mutableStateOf(false) }
 
+    val scope = rememberCoroutineScope()
+
+    // 2. STRICT VALIDATION LOGIC
+    val isCardValid = cardNumber.length == 16 && cvv.length == 3 && cardHolder.isNotBlank() && expiry.length == 4
+    val canSubmit = selectedMethod == "cash" || isCardValid
+
+    // 3. DATABASE MASTERY: Save Card Logic
+    fun handleFinalPayment() {
+        if (saveCard && selectedMethod == "card") {
+            scope.launch {
+                try {
+                    val user = supabase.auth.currentUserOrNull()
+                    if (user != null) {
+                        val last4 = if (cardNumber.length >= 4) cardNumber.takeLast(4) else ""
+                        supabase.from("profiles").update({
+                            set("last_payment_method", "card")
+                            set("saved_card_holder", cardHolder)
+                            set("saved_card_last4", last4)
+                        }) { filter { eq("id", user.id) } }
+                    }
+                } catch (e: Exception) {
+                    Log.e("PaymentScreen", "Profile Save Error: ${e.message}")
+                }
+            }
+        }
+        onPaymentSuccess(selectedMethod)
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("Payment", fontWeight = FontWeight.Black) },
+                title = { Text("Secure Payment", fontWeight = FontWeight.Black) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                }
             )
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 24.dp)) {
 
-            CheckoutStepper(currentStep = 1)
+            // Your Stepper Component (Ensure it exists in your project)
+            // CheckoutStepper(currentStep = 1)
 
             Text(
                 "Choose Payment Method",
@@ -61,56 +95,38 @@ fun PaymentScreen(total: Double, onBack: () -> Unit, onPaymentSuccess: () -> Uni
                 modifier = Modifier.padding(top = 16.dp)
             )
 
+            // PAYMENT METHOD TABS
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Using the helper component we fixed earlier
                 PaymentTypeTab(isSelected = selectedMethod == "card", label = "Card", icon = Icons.Rounded.CreditCard) { selectedMethod = "card" }
                 PaymentTypeTab(isSelected = selectedMethod == "cash", label = "Cash", icon = Icons.Rounded.Payments) { selectedMethod = "cash" }
             }
 
             Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                AnimatedVisibility(
-                    visible = selectedMethod == "card",
-                    enter = fadeIn() + expandVertically(),
-                    exit = fadeOut() + shrinkVertically()
-                ) {
+                AnimatedVisibility(visible = selectedMethod == "card") {
                     Column {
-                        // VIRTUAL CARD: Professional Gradient Look
+                        // VIRTUAL CARD DESIGN
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(200.dp)
                                 .padding(vertical = 8.dp)
                                 .background(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.primaryContainer
-                                        )
-                                    ),
+                                    brush = Brush.linearGradient(listOf(Color(0xFF1B4332), Color(0xFF52B788))),
                                     shape = RoundedCornerShape(24.dp)
                                 )
                         ) {
-                            Column(
-                                modifier = Modifier.padding(24.dp).fillMaxSize(),
-                                verticalArrangement = Arrangement.SpaceBetween
-                            ) {
+                            Column(modifier = Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Icon(Icons.Rounded.FilterVintage, null, tint = Color.White.copy(0.7f))
-                                    Text("PREMIUM FLORA CARD", color = Color.White.copy(0.8f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    Text("PREMIUM FLORA", color = Color.White.copy(0.8f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 }
-
                                 Text(
-                                    text = if (cardNumber.isEmpty()) "**** **** **** ****"
-                                    else cardNumber.chunked(4).joinToString(" "),
-                                    color = Color.White,
-                                    fontSize = 22.sp,
-                                    letterSpacing = 2.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = if (cardNumber.isEmpty()) "**** **** **** ****" else cardNumber.chunked(4).joinToString(" "),
+                                    color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp
                                 )
-
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Column {
                                         Text("CARD HOLDER", color = Color.White.copy(0.6f), fontSize = 10.sp)
@@ -126,45 +142,47 @@ fun PaymentScreen(total: Double, onBack: () -> Unit, onPaymentSuccess: () -> Uni
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // INPUT FIELDS (Using the fixed PremiumAddressField logic)
+                        // SECURE INPUTS
                         AddressTextField(cardHolder, { cardHolder = it }, "Card Holder Name", Icons.Rounded.Person)
-                        AddressTextField(cardNumber, { if (it.length <= 16) cardNumber = it }, "Card Number", Icons.Rounded.CreditCard)
+                        AddressTextField(
+                            value = cardNumber,
+                            onValueChange = { if (it.length <= 16) cardNumber = it },
+                            label = "Card Number",
+                            icon = Icons.Rounded.CreditCard,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Box(modifier = Modifier.weight(1f)) {
-                                AddressTextField(expiry, { if (it.length <= 4) expiry = it }, "Expiry (MMYY)", Icons.Rounded.DateRange)
+                                AddressTextField(
+                                    value = expiry,
+                                    onValueChange = { if (it.length <= 4) expiry = it },
+                                    label = "Expiry (MM/YY)",
+                                    icon = Icons.Rounded.DateRange,
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                )
                             }
                             Box(modifier = Modifier.weight(1f)) {
                                 OutlinedTextField(
                                     value = cvv, onValueChange = { if (it.length <= 3) cvv = it },
                                     label = { Text("CVV") },
                                     visualTransformation = PasswordVisualTransformation(),
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     leadingIcon = { Icon(Icons.Rounded.Lock, null, tint = MaterialTheme.colorScheme.primary) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = Color.Transparent
-                                    )
+                                    shape = RoundedCornerShape(16.dp)
                                 )
                             }
                         }
 
                         Row(modifier = Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = saveCard,
-                                onCheckedChange = { saveCard = it },
-                                colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
-                            )
-                            Text("Save card info for future payments", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                            Checkbox(checked = saveCard, onCheckedChange = { saveCard = it })
+                            Text("Save card details for future plant shopping", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
                 }
 
-                // CASH PAYMENT INFO
-                AnimatedVisibility(visible = selectedMethod == "cash", enter = fadeIn() + expandVertically()) {
+                AnimatedVisibility(visible = selectedMethod == "cash") {
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
@@ -173,31 +191,46 @@ fun PaymentScreen(total: Double, onBack: () -> Unit, onPaymentSuccess: () -> Uni
                         Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Info, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(16.dp))
-                            Text("Pay with cash upon delivery. Ensure you have the exact amount ready.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Cash on Delivery: Please ensure you have the total ready in cash.", fontSize = 14.sp)
                         }
                     }
                 }
             }
 
+            // FINAL SUMMARY & ACTION
             HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))
 
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Total Amount", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 16.sp)
+                Text("Total to Pay", color = Color.Gray, fontSize = 16.sp)
                 Text("$${String.format("%.2f", total)}", fontWeight = FontWeight.Black, fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
             }
 
             Button(
-                onClick = onPaymentSuccess,
+                onClick = { handleFinalPayment() },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp).height(64.dp),
                 shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.White // Fix: No more blue text!
-                ),
-                enabled = selectedMethod == "cash" || (cardNumber.length == 16 && cvv.length == 3 && cardHolder.isNotEmpty())
+                enabled = canSubmit,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White)
             ) {
                 Text(if (selectedMethod == "cash") "Confirm Order" else "Pay Now", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
             }
+        }
+    }
+}
+
+@Composable
+fun PaymentTypeTab(isSelected: Boolean, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.height(50.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(0.3f),
+        border = if (!isSelected) BorderStroke(1.dp, Color.LightGray.copy(0.2f)) else null
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = if (isSelected) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(label, color = if (isSelected) Color.White else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }

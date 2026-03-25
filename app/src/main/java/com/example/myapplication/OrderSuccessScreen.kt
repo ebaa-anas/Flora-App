@@ -1,6 +1,9 @@
 package com.example.myapplication
 
+import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor // Fixed naming to avoid conflict
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -9,34 +12,43 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
+import java.util.Locale
 
 @Composable
-fun OrderSuccessScreen(orderId: String, onTrackOrder: () -> Unit, onGoHome: () -> Unit) {
+fun OrderSuccessScreen(
+    orderId: String,
+    total: Double,
+    address: String,
+    onTrackOrder: () -> Unit,
+    onGoHome: () -> Unit
+) {
+    // 1. GENERATE THE REAL QR BITMAP
+    val qrBitmap = remember(orderId) { generateQRCode(orderId) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background) // THEME FIX
+            .background(MaterialTheme.colorScheme.background)
             .padding(24.dp)
     ) {
-        // EXIT ICON: Quick return to Home
+        // EXIT ICON
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             IconButton(
                 onClick = onGoHome,
                 modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape)
             ) {
-                Icon(
-                    Icons.Rounded.Close,
-                    contentDescription = "Exit",
-                    tint = MaterialTheme.colorScheme.onSurface
-                )
+                Icon(Icons.Rounded.Close, "Exit", tint = MaterialTheme.colorScheme.onSurface)
             }
         }
 
@@ -45,7 +57,6 @@ fun OrderSuccessScreen(orderId: String, onTrackOrder: () -> Unit, onGoHome: () -
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // SUCCESS ANIMATION PLACEHOLDER
             Icon(
                 imageVector = Icons.Rounded.CheckCircle,
                 contentDescription = null,
@@ -55,156 +66,91 @@ fun OrderSuccessScreen(orderId: String, onTrackOrder: () -> Unit, onGoHome: () -
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            Text(
-                "Order Placed!",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                "Your greenery is being prepared",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                fontSize = 16.sp
-            )
+            Text("Order Placed!", fontSize = 32.sp, fontWeight = FontWeight.Black)
+            Text("Your greenery is being prepared", color = MaterialTheme.colorScheme.onSurface.copy(0.6f), fontSize = 16.sp)
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(30.dp))
 
-            // THE RECEIPT CARD (Theme-Aware)
+            // RECEIPT CARD
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(32.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(2.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(28.dp),
+                    modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        "DIGITAL RECEIPT",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
-                        letterSpacing = 3.sp,
-                        fontSize = 12.sp
-                    )
+                    Text("DIGITAL RECEIPT", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(0.3f), letterSpacing = 3.sp, fontSize = 12.sp)
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // QR CODE PLACEHOLDER
+                    // QR CODE DISPLAY
                     Box(
                         modifier = Modifier
-                            .size(150.dp)
-                            .background(
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                                RoundedCornerShape(20.dp)
-                            ),
+                            .size(140.dp)
+                            .background(Color.White, RoundedCornerShape(20.dp))
+                            .padding(8.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                Icons.Rounded.QrCode2,
-                                null,
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                                modifier = Modifier.size(48.dp)
+                        qrBitmap?.let {
+                            Image(
+                                bitmap = it.asImageBitmap(),
+                                contentDescription = "Order QR",
+                                modifier = Modifier.fillMaxSize()
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "QR CODE\n$orderId",
-                                textAlign = TextAlign.Center,
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-                            )
-                        }
+                        } ?: Text("QR Error", fontSize = 10.sp)
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            "Order ID",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                        Text(
-                            orderId,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                    // DATA ROWS
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Order ID", color = MaterialTheme.colorScheme.onSurface.copy(0.6f))
+                        Text(orderId.take(8).uppercase(), fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // ACTION ROW: Buttons that adapt to Light/Dark
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { /* Handle Download */ },
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                        ) {
-                            Icon(
-                                Icons.Rounded.FileDownload,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Save",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Total Paid", color = MaterialTheme.colorScheme.onSurface.copy(0.6f))
+                        Text("$${String.format(Locale.US, "%.2f", total)}", fontWeight = FontWeight.Bold)
+                    }
 
-                        OutlinedButton(
-                            onClick = { /* Handle Share */ },
-                            modifier = Modifier.weight(1f).height(48.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
-                        ) {
-                            Icon(
-                                Icons.Rounded.Share,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Share",
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("Delivery Address", color = MaterialTheme.colorScheme.onSurface.copy(0.6f), fontSize = 12.sp)
+                        Text(address, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2)
                     }
                 }
             }
         }
 
-        // PRIMARY ACTION: Track Order
+        // NAVIGATION BUTTON
         Button(
             onClick = onTrackOrder,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp),
+            modifier = Modifier.fillMaxWidth().height(64.dp),
             shape = RoundedCornerShape(22.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary, contentColor = Color.White)
         ) {
             Text("Track My Plant", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
         }
-
         Spacer(modifier = Modifier.height(16.dp))
     }
+}
+
+// QR GENERATOR LOGIC
+fun generateQRCode(text: String): Bitmap? {
+    return try {
+        val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 512, 512)
+        val bitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+        for (x in 0 until 512) {
+            for (y in 0 until 512) {
+                bitmap.setPixel(x, y, if (matrix.get(x, y)) AndroidColor.BLACK else AndroidColor.WHITE)
+            }
+        }
+        bitmap
+    } catch (e: Exception) { null }
 }

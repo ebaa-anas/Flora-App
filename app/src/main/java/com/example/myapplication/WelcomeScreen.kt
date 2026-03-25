@@ -21,12 +21,12 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun WelcomeScreen(onStartClick: () -> Unit) {
-    // أنيميشن لدخول المحتوى بسلاسة عند فتح التطبيق
+
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // 1. الخلفية: صورة أوراق الشجر بدقة عالية
+
         Image(
             painter = painterResource(id = R.drawable.welcome2_bg),
             contentDescription = null,
@@ -34,7 +34,6 @@ fun WelcomeScreen(onStartClick: () -> Unit) {
             contentScale = ContentScale.Crop
         )
 
-        // 2. تدرج لوني غامق (Gradient) لجعل النص واضحاً وفخماً
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -42,14 +41,12 @@ fun WelcomeScreen(onStartClick: () -> Unit) {
                     brush = Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color(0xAA081C15), // أخضر غابة شفاف
-                            Color(0xFF081C15)  // أخضر غابة داكن جداً
+                            Color(0xAA081C15),
+                            Color(0xFF081C15)
                         )
                     )
                 )
         )
-
-        // 3. المحتوى مع تأثيرات حركة (Animation)
         AnimatedVisibility(
             visible = visible,
             enter = fadeIn(animationSpec = tween(1200)) +
@@ -62,7 +59,6 @@ fun WelcomeScreen(onStartClick: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Bottom
             ) {
-                // بطاقة زجاجية (Glass Card) تحتوي على النص
                 Card(
                     colors = CardDefaults.cardColors(
                         containerColor = Color.White.copy(alpha = 0.07f)
@@ -84,7 +80,7 @@ fun WelcomeScreen(onStartClick: () -> Unit) {
                             text = "FLORA.",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color(0xFF52B788), // لون النعناع المنعش
+                            color = Color(0xFF52B788),
                             letterSpacing = 8.sp
                         )
                         Spacer(modifier = Modifier.height(16.dp))
@@ -106,7 +102,6 @@ fun WelcomeScreen(onStartClick: () -> Unit) {
                     }
                 }
 
-                // زر الانطلاق بتصميم عصري وألوان متناسقة
                 Button(
                     onClick = onStartClick,
                     modifier = Modifier

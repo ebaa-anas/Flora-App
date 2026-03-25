@@ -7,6 +7,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,7 +24,7 @@ import coil.compose.AsyncImage
 import com.example.myapplication.model.Plant
 
 @Composable
-fun AddressTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: ImageVector) {
+fun AddressTextField(value: String, onValueChange: (String) -> Unit, label: String, icon: ImageVector, keyboardOptions: KeyboardOptions = KeyboardOptions.Default) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -34,6 +36,7 @@ fun AddressTextField(value: String, onValueChange: (String) -> Unit, label: Stri
                 tint = MaterialTheme.colorScheme.primary
             )
         },
+        keyboardOptions = keyboardOptions,
         modifier = Modifier
             .fillMaxWidth()
             .padding(bottom = 12.dp),
@@ -94,63 +97,46 @@ fun CheckoutStepper(currentStep: Int) {
 }
 
 @Composable
-fun PaymentTypeTab(isSelected: Boolean, label: String, icon: ImageVector, onClick: () -> Unit) {
-    // UI IMPROVEMENT: Surface colors for unselected, Primary for selected
-    val backgroundColor = if (isSelected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-
-    val contentColor = if (isSelected) Color.White
-    else MaterialTheme.colorScheme.primary
-
-    Surface(
-        modifier = Modifier
-            .height(54.dp) // Slightly taller for better touch targets
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() },
-        color = backgroundColor,
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                label,
-                color = contentColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
-        }
-    }
-}
-
-@Composable
-fun ModernPlantCard(plant: Plant, onClick: (Plant) -> Unit) {
+fun ModernPlantCard(plant: Plant, onClick: (Plant) -> Unit, modifier: Modifier = Modifier) {
     Card(
-        modifier = Modifier
-            .padding(8.dp)
-            .clickable { onClick(plant) },
+        modifier = modifier.clickable { onClick(plant) },
         shape = RoundedCornerShape(28.dp),
-        elevation = CardDefaults.cardElevation(4.dp)
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(2.dp)
     ) {
-        Column {
+        Column(modifier = Modifier.padding(8.dp)) {
             AsyncImage(
                 model = plant.imageUrl,
                 contentDescription = null,
-                modifier = Modifier.fillMaxWidth().height(180.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clip(RoundedCornerShape(24.dp)),
                 contentScale = ContentScale.Crop
             )
             Column(modifier = Modifier.padding(12.dp)) {
-                Text(plant.name, fontWeight = FontWeight.Bold)
-                Text("$${plant.price}", color = MaterialTheme.colorScheme.primary)
+                Text(plant.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "$${String.format("%.2f", plant.price)}",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    // The "Plus" button adds that e-commerce "Call to Action"
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(androidx.compose.material.icons.Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                    }
+                }
             }
         }
     }

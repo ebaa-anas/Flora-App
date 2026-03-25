@@ -9,19 +9,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.LocalShipping
-import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.ShoppingCart
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.jan.supabase.gotrue.Auth
+import io.github.jan.supabase.gotrue.auth
+import io.github.jan.supabase.postgrest.from
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,6 +30,37 @@ fun OrderHistoryScreen(
     onBack: () -> Unit,
     onTrackOrder: (String) -> Unit
 ) {
+    var orders by remember { mutableStateOf<List<OrderData>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        scope.launch {
+            try {
+                val userId = supabase.auth.currentUserOrNull()?.id
+                if (userId != null) {
+                    val response = supabase.from("orders")
+                        .select { 
+                            filter { eq("user_id", userId) }
+                        }.decodeList<Map<String, Any>>()
+                    
+                    orders = response.map { map ->
+                        OrderData(
+                            id = map["id"].toString().take(8).uppercase(),
+                            status = map["status"]?.toString() ?: "Processing",
+                            price = "$${map["total_amount"]}",
+                            date = "Recent Order" 
+                        )
+                    }.reversed()
+                }
+            } catch (e: Exception) {
+                // If it fails, we keep the list empty or show a placeholder
+            } finally {
+                isLoading = false
+            }
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -42,22 +74,32 @@ fun OrderHistoryScreen(
             )
         }
     ) { padding ->
-        val orders = listOf(
-            OrderData("FL-2894", "Delivered", "$40.00", "21 March 2026"),
-            OrderData("FL-2102", "Shipped", "$18.00", "19 March 2026"),
-            OrderData("FL-1985", "Processing", "$55.00", "Just Now")
-        )
-
-        LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize(),
-            contentPadding = PaddingValues(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            items(orders) { orderItem ->
-                OrderHistoryCard(
-                    order = orderItem,
-                    onTrackOrder = onTrackOrder
-                )
+        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.primary)
+            } else if (orders.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Rounded.ShoppingCart, null, modifier = Modifier.size(64.dp), tint = Color.Gray.copy(0.3f))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("No orders yet", color = Color.Gray)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(orders) { orderItem ->
+                        OrderHistoryCard(
+                            order = orderItem,
+                            onTrackOrder = onTrackOrder
+                        )
+                    }
+                }
             }
         }
     }
@@ -71,13 +113,14 @@ fun OrderHistoryCard(
     val statusColor = when (order.status) {
         "Delivered" -> MaterialTheme.colorScheme.primary
         "Shipped" -> Color(0xFFFFB703)
+        "Processing" -> Color(0xFF3A86FF)
         else -> Color.Gray
     }
-// Replace your when(order.status) block with this:
+
     val statusIcon = when (order.status) {
-        "Delivered" -> Icons.Rounded.Check        // Works without extra library
-        "Shipped" -> Icons.Rounded.ShoppingCart   // Works without extra library
-        else -> Icons.Rounded.Info                // Works without extra library
+        "Delivered" -> Icons.Rounded.Check
+        "Shipped" -> Icons.Rounded.ShoppingCart
+        else -> Icons.Rounded.Info
     }
 
     Card(
@@ -96,7 +139,7 @@ fun OrderHistoryCard(
                 ) {
                     Icon(
                         imageVector = statusIcon,
-                        contentDescription = null, // THIS IS THE MISSING PART
+                        contentDescription = null,
                         tint = statusColor,
                         modifier = Modifier.size(28.dp)
                     )

@@ -22,9 +22,30 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+// DATA MODEL FOR THE TIMELINE
+data class TimelineStep(val title: String, val time: String, val isCompleted: Boolean)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackingScreen(orderId: String, onBack: () -> Unit) {
+
+    // REAL-TIME SIMULATION: In a real app, 'status' would come from Supabase
+    var currentStatus by remember { mutableStateOf("Out for Delivery") }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -34,8 +55,7 @@ fun TrackingScreen(orderId: String, onBack: () -> Unit) {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.primary)
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+                }
             )
         }
     ) { padding ->
@@ -45,66 +65,49 @@ fun TrackingScreen(orderId: String, onBack: () -> Unit) {
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
         ) {
-            // 1. LIVE MAP PLACEHOLDER (The "Wow" Factor)
+            // 1. LIVE MAP VISUAL
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(280.dp)
                     .padding(16.dp)
                     .clip(RoundedCornerShape(32.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             ) {
-                // In a real app, you'd integrate Google Maps here
                 Column(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Icon(
-                        Icons.Rounded.Map,
-                        null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(0.3f)
-                    )
-                    Text(
-                        "Live Tracking in Istanbul...",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Icon(Icons.Rounded.Map, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(0.3f))
+                    Text("Live Tracking Active: Istanbul", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }
 
-                // Floating ETA Badge
                 Surface(
                     modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp),
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.primary,
-                    tonalElevation = 8.dp
+                    shadowElevation = 8.dp
                 ) {
-                    Text(
-                        "Estimated Arrival: 14:30",
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        color = Color.White,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 14.sp
-                    )
+                    Text("Estimated Arrival: 14:30", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White, fontWeight = FontWeight.ExtraBold)
                 }
             }
 
             Column(modifier = Modifier.padding(24.dp)) {
-                // 2. ORDER HEADER
+                // 2. HEADER
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column {
-                        Text("Order ID: #$orderId", fontSize = 20.sp, fontWeight = FontWeight.Black)
-                        Text("Expected delivery: Today", color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+                        Text("Order ID: #${orderId.take(8).uppercase()}", fontSize = 20.sp, fontWeight = FontWeight.Black)
+                        Text("Status: $currentStatus", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
-                    IconButton(onClick = { /* Contact Support */ }) {
+                    IconButton(onClick = { /* Help logic */ }) {
                         Icon(Icons.Rounded.HelpCenter, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // 3. THE COURIER CARD (Building Trust)
+                // 3. COURIER INFO
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
@@ -112,21 +115,15 @@ fun TrackingScreen(orderId: String, onBack: () -> Unit) {
                     elevation = CardDefaults.cardElevation(2.dp)
                 ) {
                     Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier.size(54.dp).background(MaterialTheme.colorScheme.primary.copy(0.1f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
+                        Box(modifier = Modifier.size(54.dp).background(MaterialTheme.colorScheme.primary.copy(0.1f), CircleShape), contentAlignment = Alignment.Center) {
                             Icon(Icons.Rounded.ElectricBike, null, tint = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Ahmed K.", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Text("Flora Delivery Expert", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(0.5f))
+                            Text("Ahmed K.", fontWeight = FontWeight.Bold)
+                            Text("Flora Delivery Expert", fontSize = 13.sp, color = Color.Gray)
                         }
-                        IconButton(
-                            onClick = { /* Call Courier */ },
-                            modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).size(40.dp)
-                        ) {
+                        IconButton(onClick = { /* Call */ }, modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).size(40.dp)) {
                             Icon(Icons.Rounded.Phone, null, tint = Color.White, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -134,23 +131,22 @@ fun TrackingScreen(orderId: String, onBack: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // 4. PROFESSIONAL TIMELINE
-                Text("Status History", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                // 4. THE TIMELINE
+                Text("Delivery Progress", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                 Spacer(modifier = Modifier.height(24.dp))
 
                 TrackingTimeline(
                     listOf(
                         TimelineStep("Order Placed", "10:00 AM", true),
-                        TimelineStep("Package Prepared", "11:30 AM", true),
+                        TimelineStep("Prepared", "11:30 AM", true),
                         TimelineStep("Out for Delivery", "01:15 PM", true),
-                        TimelineStep("Delivered", "Arriving soon", false)
+                        TimelineStep("Delivered", "Pending", false)
                     )
                 )
             }
         }
     }
 }
-
 @Composable
 fun TrackingTimeline(steps: List<TimelineStep>) {
     Column {
@@ -204,5 +200,3 @@ fun TrackingTimeline(steps: List<TimelineStep>) {
         }
     }
 }
-
-data class TimelineStep(val title: String, val time: String, val isCompleted: Boolean)
