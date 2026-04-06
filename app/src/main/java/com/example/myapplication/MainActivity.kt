@@ -53,6 +53,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import kotlinx.serialization.Serializable
+
 // 1. Credentials
 private const val SUPABASE_URL = "https://mckpeuvojctibneakuje.supabase.co"
 private const val SUPABASE_KEY = "sb_publishable_BV7u7ShKZg6ozTBRf74EbQ_5aA4CKXu"
@@ -62,52 +64,90 @@ val supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_KEY) {
     install(Auth)
 }
 
+@Serializable
+data class UserProfile(
+    val id: String,
+    val full_name: String?,
+    val phone_number: String?,
+    val email: String?,
+    val address: String? = null,
+    val notifications_enabled: Boolean? = true
+)
+
+// NEW FUNCTION: Save Address
+suspend fun saveAddressToProfile(newAddress: String): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            val user = supabase.auth.currentUserOrNull() ?: return@withContext false
+            supabase.from("profiles").update({
+                set("address", newAddress)
+            }) { filter { eq("id", user.id) } }
+            true
+        } catch (e: Exception) { false }
+    }
+}
+
+// NEW FUNCTION: Toggle Notifications
+suspend fun updateNotificationPreference(enabled: Boolean): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            val user = supabase.auth.currentUserOrNull() ?: return@withContext false
+            supabase.from("profiles").update({
+                set("notifications_enabled", enabled)
+            }) { filter { eq("id", user.id) } }
+            true
+        } catch (e: Exception) { false }
+    }
+}
+
 // --- GLOBAL BACKEND LOGIC ---
 suspend fun fetchPlants(): List<Plant> = withContext(Dispatchers.IO) {
     try { supabase.from("plants").select().decodeList<Plant>() }
-    catch (e: Exception) { 
+    catch (e: Exception) {
         Log.e("SupabaseError", "Fetch Plants Failed: ${e.message}")
-        emptyList() 
+        emptyList()
     }
 }
 
 data class PromoItem(val tag: String, val title: String, val bgColor: Color, val imageUrl: String)
 
-
+// 1. THE LOGIN LOGIC
 suspend fun loginProfessional(email: String, pass: String): String? {
-    return withContext(Dispatchers.IO) {
-        try {
-            supabase.auth.signInWith(Email) {
-                this.email = email
-                this.password = pass
-            }
-            val userId = supabase.auth.currentUserOrNull()?.id
-            val profile = supabase.from("profiles")
-                .select { filter { eq("id", userId!!) } }
-                .decodeSingleOrNull<Map<String, String>>()
-            profile?.get("full_name")?.replace("\"", "")
-        } catch (e: Exception) { 
-            Log.e("SupabaseError", "Login Failed: ${e.message}")
-            null 
+    return try {
+        supabase.auth.signInWith(Email) {
+            this.email = email
+            this.password = pass
         }
+        val userId = supabase.auth.currentUserOrNull()?.id ?: return null
+        val profile = supabase.from("profiles")
+            .select { filter { eq("id", userId) } }
+            .decodeSingleOrNull<UserProfile>()
+        profile?.full_name ?: "Plant Lover"
+    } catch (e: Exception) {
+        Log.e("AuthError", "Login crashed: ${e.message}")
+        null
     }
 }
 
+// 2. THE SIGNUP LOGIC
 suspend fun signUpProfessional(email: String, pass: String, name: String, phone: String): Boolean {
-    return withContext(Dispatchers.IO) {
-        try {
-            supabase.auth.signUpWith(Email) { this.email = email; this.password = pass }
-            val userId = supabase.auth.currentUserOrNull()?.id
-            if (userId != null) {
-                supabase.from("profiles").insert(
-                    mapOf("id" to userId, "full_name" to name, "phone_number" to phone, "email" to email)
-                )
-            }
-            true
-        } catch (e: Exception) { 
-            Log.e("SupabaseError", "Signup Failed: ${e.message}")
-            false 
+    return try {
+        val authUser = supabase.auth.signUpWith(Email) {
+            this.email = email
+            this.password = pass
         }
+        val userId = authUser?.id ?: return false
+        val newProfile = UserProfile(
+            id = userId,
+            full_name = name,
+            phone_number = phone,
+            email = email
+        )
+        supabase.from("profiles").insert(newProfile)
+        true
+    } catch (e: Exception) {
+        Log.e("AuthError", "Signup crashed: ${e.message}")
+        false
     }
 }
 
@@ -122,9 +162,9 @@ suspend fun saveProfileChanges(newName: String, newEmail: String): Boolean {
                 }) { filter { eq("id", user.id) } }
                 true
             } else false
-        } catch (e: Exception) { 
+        } catch (e: Exception) {
             Log.e("SupabaseError", "Update Profile Failed: ${e.message}")
-            false 
+            false
         }
     }
 }
@@ -137,7 +177,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val context = LocalContext.current
-            
+
             // --- ALL YOUR HOISTED STATES ---
             var currentScreen by remember { mutableStateOf("home") }
             var userName by remember { mutableStateOf("User") }
@@ -150,17 +190,21 @@ class MainActivity : ComponentActivity() {
             var isGift by remember { mutableStateOf(false) }
             var giftNote by remember { mutableStateOf("") }
             var showEditProfile by remember { mutableStateOf(false) }
+            var lastOrderStatus by remember { mutableStateOf("Processing") }
 
-            // Persistence for Success Screen
             var successOrderTotal by remember { mutableDoubleStateOf(0.0) }
             var successOrderAddress by remember { mutableStateOf("") }
+
+            var userAddress by remember { mutableStateOf("") }
+            var notificationsEnabled by remember { mutableStateOf(true) }
+            var showEditAddress by remember { mutableStateOf(false) }
 
             val cartItems = remember { mutableStateListOf<Triple<Plant, String?, Int>>() }
             val scope = rememberCoroutineScope()
 
-            // --- CALCULATIONS ---
+            // BULLETPROOF CART MATH
             val subtotal = cartItems.sumOf { (plant, pot, qty) ->
-                val potFee = if (pot == "Ceramic") 15.0 else 0.0
+                val potFee = if (pot?.contains("Ceramic") == true) 15.0 else 0.0
                 (plant.price + potFee) * qty
             }
             val deliveryFee = if (subtotal >= 75.0 || cartItems.isEmpty()) 0.0 else 15.0
@@ -175,8 +219,11 @@ class MainActivity : ComponentActivity() {
                     try {
                         val profile = supabase.from("profiles")
                             .select { filter { eq("id", user?.id ?: "") } }
-                            .decodeSingle<Map<String, String>>()
-                        userName = profile["full_name"] ?: "User"
+                            .decodeSingleOrNull<UserProfile>()
+
+                        userName = profile?.full_name ?: user?.userMetadata?.get("full_name")?.toString()?.replace("\"", "") ?: "User"
+                        userAddress = profile?.address ?: ""
+                        notificationsEnabled = profile?.notifications_enabled ?: true
                     } catch (e: Exception) {
                         userName = user?.userMetadata?.get("full_name")?.toString()?.replace("\"", "") ?: "User"
                     }
@@ -195,12 +242,26 @@ class MainActivity : ComponentActivity() {
                         }
                         "welcome" -> WelcomeScreen { currentScreen = "login" }
                         "login" -> LoginScreen(
-                            onLoginSuccess = { name -> userName = name; currentScreen = "home" },
+                            onLoginSuccess = { name ->
+                                userName = name
+                                scope.launch {
+                                    userEmail = supabase.auth.currentUserOrNull()?.email ?: ""
+                                    val user = supabase.auth.currentUserOrNull()
+                                    val profile = supabase.from("profiles").select { filter { eq("id", user?.id ?: "") } }.decodeSingleOrNull<UserProfile>()
+                                    userAddress = profile?.address ?: ""
+                                    notificationsEnabled = profile?.notifications_enabled ?: true
+                                }
+                                currentScreen = "home"
+                            },
                             onGoToSignup = { currentScreen = "signup" },
                             loginLogic = { e, p -> loginProfessional(e, p) }
                         )
                         "signup" -> SignUpScreen(
-                            onSignUpComplete = { name -> userName = name; currentScreen = "home" },
+                            onSignUpComplete = { name ->
+                                userName = name
+                                scope.launch { userEmail = supabase.auth.currentUserOrNull()?.email ?: "" }
+                                currentScreen = "home"
+                            },
                             onGoToLogin = { currentScreen = "login" },
                             signUpLogic = { e, p, n, ph -> signUpProfessional(e, p, n, ph) }
                         )
@@ -219,7 +280,12 @@ class MainActivity : ComponentActivity() {
                                 onNavChange = { screen -> currentScreen = screen },
                                 isDarkMode = isDarkMode,
                                 onToggleDark = { isDarkMode = it },
-                                onEditProfileRequested = { showEditProfile = true }
+                                onEditProfileRequested = { showEditProfile = true },
+                                // THE BRIDGE FIX: Successfully passes the ID back from the nested component!
+                                onTrackOrderRequest = { orderIdToTrack ->
+                                    lastOrderId = orderIdToTrack
+                                    currentScreen = "tracking"
+                                }
                             )
                         }
 
@@ -230,14 +296,15 @@ class MainActivity : ComponentActivity() {
                                     onBack = { currentScreen = "home"; selectedPlant = null },
                                     onAddToCart = { pot ->
                                         cartItems.add(Triple(plant, pot, 1))
-                                        currentScreen = "cart"
-                                        selectedPlant = null
+                                        // Stays on page logic preserved
                                     }
                                 )
                             }
                         }
 
                         "address" -> AddressScreen(
+                            savedAddress = userAddress,
+                            savedPhone = "",
                             onBack = { currentScreen = "cart" },
                             onNext = { addressData, phoneData ->
                                 currentOrderAddress = addressData
@@ -249,15 +316,15 @@ class MainActivity : ComponentActivity() {
                         "payment" -> PaymentScreen(
                             total = finalTotal,
                             onBack = { currentScreen = "address" },
-                            onPaymentSuccess = { method ->
+                            onPaymentSuccess = { method, saveCard, cardNumber, cardHolder ->
                                 scope.launch {
                                     val user = supabase.auth.currentUserOrNull()
-                                    Log.d("CHECK_AUTH", "User ID is: ${user?.id}")
                                     if (user == null) {
                                         Toast.makeText(context, "Session expired. Please login again.", Toast.LENGTH_LONG).show()
                                         currentScreen = "login"
                                         return@launch
                                     }
+
                                     val orderId = completePurchase(
                                         userId = user.id,
                                         address = currentOrderAddress,
@@ -270,12 +337,27 @@ class MainActivity : ComponentActivity() {
                                     )
 
                                     if (orderId != null) {
+                                        // Silent Card Saving
+                                        if (saveCard && method == "card") {
+                                            try {
+                                                val last4 = if (cardNumber.length >= 4) cardNumber.takeLast(4) else ""
+                                                supabase.from("profiles").update({
+                                                    set("last_payment_method", "card")
+                                                    set("saved_card_holder", cardHolder)
+                                                    set("saved_card_last4", last4)
+                                                }) { filter { eq("id", user.id) } }
+                                            } catch (e: Exception) { Log.e("SupabaseAuth", "Save card failed") }
+                                        }
+
                                         lastOrderId = orderId
+                                        lastOrderStatus = "Processing"
+                                        successOrderTotal = finalTotal
+                                        successOrderAddress = currentOrderAddress
                                         cartItems.clear()
                                         currentScreen = "order_success"
                                     } else {
                                         withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "Purchase failed. Check logs for SupabaseError.", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, "Purchase failed. Check logs.", Toast.LENGTH_LONG).show()
                                         }
                                     }
                                 }
@@ -317,6 +399,9 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// -----------------------------------------------------------------------------------------
+// --- FLORA MAIN CONTAINER (Updated Signature to accept onTrackOrderRequest) ---
+// -----------------------------------------------------------------------------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FloraMainContainer(
@@ -332,20 +417,32 @@ fun FloraMainContainer(
     onNavChange: (String) -> Unit,
     isDarkMode: Boolean,
     onToggleDark: (Boolean) -> Unit,
-    onEditProfileRequested: () -> Unit
+    onEditProfileRequested: () -> Unit,
+    onTrackOrderRequest: (String) -> Unit // THE BRIDGE FIX
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // Data Fetching
     var supabasePlants by remember { mutableStateOf<List<Plant>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var showFilterSheet by remember { mutableStateOf(false) }
     var activePetFilter by remember { mutableStateOf("All") }
     var activeLightFilter by remember { mutableStateOf("All") }
 
+    var userAddress by remember { mutableStateOf("") }
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var showEditAddress by remember { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
         supabasePlants = fetchPlants()
+        val user = supabase.auth.currentUserOrNull()
+        if(user != null){
+            try {
+                val profile = supabase.from("profiles").select { filter { eq("id", user.id) } }.decodeSingleOrNull<UserProfile>()
+                userAddress = profile?.address ?: ""
+                notificationsEnabled = profile?.notifications_enabled ?: true
+            } catch (e: Exception) {}
+        }
         isLoading = false
     }
 
@@ -367,30 +464,16 @@ fun FloraMainContainer(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 TopAppBar(
-                    title = {
-                        Text(
-                            "Flora",
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    },
+                    title = { Text("Flora", fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                            Icon(
-                                Icons.Default.Menu,
-                                "Menu",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                            Icon(Icons.Default.Menu, "Menu", tint = MaterialTheme.colorScheme.primary)
                         }
                     },
                     actions = {
                         IconButton(onClick = { onNavChange("cart") }) {
                             BadgedBox(badge = { if (cartItems.isNotEmpty()) Badge { Text(cartItems.size.toString()) } }) {
-                                Icon(
-                                    Icons.Default.ShoppingCart,
-                                    "Cart",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                                Icon(Icons.Default.ShoppingCart, "Cart", tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -398,7 +481,6 @@ fun FloraMainContainer(
             }
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-                // Navigation Logic
                 when (currentNav.lowercase().replace(" ", "_")) {
                     "home" -> {
                         if (isLoading) {
@@ -417,26 +499,33 @@ fun FloraMainContainer(
                         }
                     }
 
-                    "my_plants" -> MyGreenhouseScreen(
-                        padding = PaddingValues(0.dp),
-                        userName = userName
-                    )
-
+                    "my_plants" -> MyGreenhouseScreen(padding = PaddingValues(0.dp), userName = userName)
                     "expert_chat" -> ExpertChatScreen(onBack = { onNavChange("home") })
 
                     "my_orders" -> OrderHistoryScreen(
                         onBack = { onNavChange("home") },
-                        onTrackOrder = { /* Track Order Logic */ }
+                        onTrackOrder = onTrackOrderRequest // Routes securely back to MainActivity
                     )
 
                     "settings" -> {
                         SettingsScreen(
                             padding = PaddingValues(0.dp),
+                            userName = userName,
+                            userEmail = userEmail,
+                            userAddress = userAddress,
+                            notificationsEnabled = notificationsEnabled,
                             onBack = { onNavChange("home") },
-                            onLogout = { onNavChange("login") },
+                            onLogout = {
+                                scope.launch { supabase.auth.signOut(); onNavChange("login") }
+                            },
                             isDark = isDarkMode,
                             onToggleDark = onToggleDark,
-                            onEditProfile = onEditProfileRequested
+                            onEditProfile = onEditProfileRequested,
+                            onEditAddress = { showEditAddress = true },
+                            onToggleNotifications = { isEnabled ->
+                                notificationsEnabled = isEnabled
+                                scope.launch { updateNotificationPreference(isEnabled) }
+                            }
                         )
                     }
                     "cart" -> { CartScreen(
@@ -450,12 +539,21 @@ fun FloraMainContainer(
                         onViewItem = onPlantClick
                     )}
 
-                    else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Screen $currentNav not found.")
-                    }
+                    else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Screen $currentNav not found.") }
                 }
             }
         }
+    }
+
+    if (showEditAddress) {
+        EditAddressDialog(
+            currentAddress = userAddress,
+            onDismiss = { showEditAddress = false },
+            onSaveSuccess = { newAddress ->
+                userAddress = newAddress
+                showEditAddress = false
+            }
+        )
     }
 
     if (showFilterSheet) {
@@ -470,6 +568,7 @@ fun FloraMainContainer(
     }
 }
 
+// ... ALL THE REMAINING HELPER COMPOSABLES (FloraHomeScreenContent, PromoBannerCard, Sidebar, Dialogs, completePurchase) REMAIN EXACTLY THE SAME BELOW THIS LINE ...
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FloraHomeScreenContent(
@@ -541,9 +640,9 @@ fun FloraHomeScreenContent(
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp)) {
             Text("Discover your\nperfect greenery",
                 style = MaterialTheme.typography.headlineLarge.copy(
-                fontWeight = FontWeight.ExtraBold,
-                lineHeight = 35.sp,
-                color = MaterialTheme.colorScheme.onBackground
+                    fontWeight = FontWeight.ExtraBold,
+                    lineHeight = 35.sp,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
             )
             Spacer(modifier = Modifier.height(20.dp))
@@ -734,6 +833,49 @@ fun EditProfileDialog(
         shape = RoundedCornerShape(28.dp)
     )
 }
+
+@Composable
+fun EditAddressDialog(
+    currentAddress: String,
+    onDismiss: () -> Unit,
+    onSaveSuccess: (String) -> Unit
+) {
+    var tempAddress by remember { mutableStateOf(currentAddress) }
+    var isUpdating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = { if (!isUpdating) onDismiss() },
+        confirmButton = {
+            if (isUpdating) CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+            else TextButton(onClick = {
+                isUpdating = true
+                scope.launch {
+                    if (saveAddressToProfile(tempAddress)) {
+                        onSaveSuccess(tempAddress)
+                        onDismiss()
+                    }
+                    isUpdating = false
+                }
+            }) { Text("Save Address", color = Color(0xFF2D6A4F), fontWeight = FontWeight.Bold) }
+        },
+        dismissButton = { if (!isUpdating) TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) } },
+        title = { Text("Shipping Address", fontWeight = FontWeight.Black, color = Color(0xFF1B4332)) },
+        text = {
+            OutlinedTextField(
+                value = tempAddress,
+                onValueChange = { tempAddress = it },
+                label = { Text("Full Address (Istanbul)") },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                enabled = !isUpdating
+            )
+        },
+        containerColor = Color.White,
+        shape = RoundedCornerShape(28.dp)
+    )
+}
+
 suspend fun completePurchase(
     userId: String,
     address: String,
@@ -746,7 +888,6 @@ suspend fun completePurchase(
 ): String? {
     return withContext(Dispatchers.IO) {
         try {
-            // 1. Prepare the Order Data using your OrderRequest model
             val orderData = OrderRequest(
                 user_id = userId,
                 total_amount = total,
@@ -757,18 +898,15 @@ suspend fun completePurchase(
                 gift_note = giftNote
             )
 
-            // 2. Insert Order and decode using JsonElement to prevent "Unexpected Token" errors
             val orderResponse = supabase.from("orders")
                 .insert(orderData) {
                     select()
                 }
                 .decodeSingle<Map<String, kotlinx.serialization.json.JsonElement>>()
 
-            // 3. Safely extract the ID and remove any quotes
             val rawOrderId = orderResponse["id"]?.toString() ?: return@withContext null
             val orderId = rawOrderId.replace("\"", "")
 
-            // 4. Insert each Cart Item using your OrderItemRequest model
             cartItems.forEach { (plant, pot, qty) ->
                 val itemData = OrderItemRequest(
                     order_id = orderId,
@@ -780,7 +918,7 @@ suspend fun completePurchase(
             }
 
             Log.d("SupabaseSuccess", "Order successfully stored with ID: $orderId")
-            orderId // Returns the clean ID to MainActivity to trigger the Success Screen
+            orderId
 
         } catch (e: Exception) {
             Log.e("SupabaseError", "Detailed Failure: ${e.message}")

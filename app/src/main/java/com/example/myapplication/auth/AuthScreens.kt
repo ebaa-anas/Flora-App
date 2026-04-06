@@ -108,21 +108,17 @@ fun LoginScreen(
             Spacer(modifier = Modifier.height(18.dp))
             Text("Or continue with", color = Color.Gray, fontSize = 12.sp)
 
-            // GOOGLE LOGIN BUTTON (Play Store Standard)
+            // GOOGLE LOGIN BUTTON
             IconButton(
                 onClick = {
                     scope.launch {
                         try {
-                            // This opens the browser for the user to pick their Google account
                             supabase.auth.signInWith(Google)
-
-                            // After they return from the browser:
                             val user = supabase.auth.currentUserOrNull()
                             if (user != null) {
                                 onLoginSuccess(user.userMetadata?.get("full_name").toString())
                             }
                         } catch (e: Exception) {
-                            // Show the error on screen so you know EXACTLY why it failed
                             errorText = "Google Error: ${e.localizedMessage}"
                         }
                     }

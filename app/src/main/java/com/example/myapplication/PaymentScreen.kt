@@ -23,18 +23,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.jan.supabase.gotrue.auth
-import io.github.jan.supabase.postgrest.from
-import kotlinx.coroutines.launch
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PaymentScreen(
     total: Double,
     onBack: () -> Unit,
-    onPaymentSuccess: (String) -> Unit
+    onPaymentSuccess: (String, Boolean, String, String) -> Unit
 ) {
-    // 1. STATE MANAGEMENT
     var selectedMethod by remember { mutableStateOf("card") }
     var cardNumber by remember { mutableStateOf("") }
     var cardHolder by remember { mutableStateOf("") }
@@ -42,33 +39,8 @@ fun PaymentScreen(
     var cvv by remember { mutableStateOf("") }
     var saveCard by remember { mutableStateOf(false) }
 
-    val scope = rememberCoroutineScope()
-
-    // 2. STRICT VALIDATION LOGIC
-    val isCardValid = cardNumber.length == 16 && cvv.length == 3 && cardHolder.isNotBlank() && expiry.length == 4
+    val isCardValid = cardNumber.length == 16 && cvv.length >= 3 && cardHolder.isNotBlank() && expiry.length == 4
     val canSubmit = selectedMethod == "cash" || isCardValid
-
-    // 3. DATABASE MASTERY: Save Card Logic
-    fun handleFinalPayment() {
-        if (saveCard && selectedMethod == "card") {
-            scope.launch {
-                try {
-                    val user = supabase.auth.currentUserOrNull()
-                    if (user != null) {
-                        val last4 = if (cardNumber.length >= 4) cardNumber.takeLast(4) else ""
-                        supabase.from("profiles").update({
-                            set("last_payment_method", "card")
-                            set("saved_card_holder", cardHolder)
-                            set("saved_card_last4", last4)
-                        }) { filter { eq("id", user.id) } }
-                    }
-                } catch (e: Exception) {
-                    Log.e("PaymentScreen", "Profile Save Error: ${e.message}")
-                }
-            }
-        }
-        onPaymentSuccess(selectedMethod)
-    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -85,15 +57,7 @@ fun PaymentScreen(
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 24.dp)) {
 
-            // Your Stepper Component (Ensure it exists in your project)
-            // CheckoutStepper(currentStep = 1)
-
-            Text(
-                "Choose Payment Method",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 16.dp)
-            )
+            Text("Choose Payment Method", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 14.sp, modifier = Modifier.padding(top = 16.dp))
 
             // PAYMENT METHOD TABS
             Row(
@@ -113,10 +77,7 @@ fun PaymentScreen(
                                 .fillMaxWidth()
                                 .height(200.dp)
                                 .padding(vertical = 8.dp)
-                                .background(
-                                    brush = Brush.linearGradient(listOf(Color(0xFF1B4332), Color(0xFF52B788))),
-                                    shape = RoundedCornerShape(24.dp)
-                                )
+                                .background(brush = Brush.linearGradient(listOf(Color(0xFF1B4332), Color(0xFF52B788))), shape = RoundedCornerShape(24.dp))
                         ) {
                             Column(modifier = Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -134,7 +95,8 @@ fun PaymentScreen(
                                     }
                                     Column(horizontalAlignment = Alignment.End) {
                                         Text("EXPIRY", color = Color.White.copy(0.6f), fontSize = 10.sp)
-                                        Text(if (expiry.isEmpty()) "MM/YY" else expiry, color = Color.White, fontWeight = FontWeight.Bold)
+                                        val formattedExpiry = if (expiry.length > 2) expiry.substring(0, 2) + "/" + expiry.substring(2) else expiry
+                                        Text(if (expiry.isEmpty()) "MM/YY" else formattedExpiry, color = Color.White, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -146,7 +108,7 @@ fun PaymentScreen(
                         AddressTextField(cardHolder, { cardHolder = it }, "Card Holder Name", Icons.Rounded.Person)
                         AddressTextField(
                             value = cardNumber,
-                            onValueChange = { if (it.length <= 16) cardNumber = it },
+                            onValueChange = { if (it.length <= 16 && it.all { char -> char.isDigit() }) cardNumber = it },
                             label = "Card Number",
                             icon = Icons.Rounded.CreditCard,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -156,15 +118,16 @@ fun PaymentScreen(
                             Box(modifier = Modifier.weight(1f)) {
                                 AddressTextField(
                                     value = expiry,
-                                    onValueChange = { if (it.length <= 4) expiry = it },
-                                    label = "Expiry (MM/YY)",
+                                    onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) expiry = it },
+                                    label = "Expiry (MMYY)",
                                     icon = Icons.Rounded.DateRange,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                                 )
                             }
                             Box(modifier = Modifier.weight(1f)) {
                                 OutlinedTextField(
-                                    value = cvv, onValueChange = { if (it.length <= 3) cvv = it },
+                                    value = cvv,
+                                    onValueChange = { if (it.length <= 3 && it.all { char -> char.isDigit() }) cvv = it },
                                     label = { Text("CVV") },
                                     visualTransformation = PasswordVisualTransformation(),
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -191,7 +154,7 @@ fun PaymentScreen(
                         Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Rounded.Info, null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(16.dp))
-                            Text("Cash on Delivery: Please ensure you have the total ready in cash.", fontSize = 14.sp)
+                            Text("Cash on Delivery: Please ensure you have the exact amount ready in cash.", fontSize = 14.sp)
                         }
                     }
                 }
@@ -202,11 +165,13 @@ fun PaymentScreen(
 
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Total to Pay", color = Color.Gray, fontSize = 16.sp)
-                Text("$${String.format("%.2f", total)}", fontWeight = FontWeight.Black, fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
+                Text("₺${String.format(Locale.US, "%.2f", total)}", fontWeight = FontWeight.Black, fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
             }
 
             Button(
-                onClick = { handleFinalPayment() },
+                onClick = {
+                    onPaymentSuccess(selectedMethod, saveCard, cardNumber, cardHolder)
+                },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp).height(64.dp),
                 shape = RoundedCornerShape(22.dp),
                 enabled = canSubmit,
@@ -218,16 +183,17 @@ fun PaymentScreen(
     }
 }
 
+// FIX: Added RowScope to give it access to the weight modifier!
 @Composable
-fun PaymentTypeTab(isSelected: Boolean, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+fun RowScope.PaymentTypeTab(isSelected: Boolean, label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.height(50.dp),
+        modifier = Modifier.weight(1f).height(50.dp),
         shape = RoundedCornerShape(16.dp),
         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(0.3f),
         border = if (!isSelected) BorderStroke(1.dp, Color.LightGray.copy(0.2f)) else null
     ) {
-        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Icon(icon, null, tint = if (isSelected) Color.White else Color.Gray, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(label, color = if (isSelected) Color.White else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 13.sp)

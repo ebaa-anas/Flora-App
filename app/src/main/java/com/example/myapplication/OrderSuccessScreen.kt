@@ -1,7 +1,7 @@
 package com.example.myapplication
 
 import android.graphics.Bitmap
-import android.graphics.Color as AndroidColor // Fixed naming to avoid conflict
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -33,7 +33,7 @@ fun OrderSuccessScreen(
     onTrackOrder: () -> Unit,
     onGoHome: () -> Unit
 ) {
-    // 1. GENERATE THE REAL QR BITMAP
+    // GENERATE THE REAL QR BITMAP
     val qrBitmap = remember(orderId) { generateQRCode(orderId) }
 
     Column(
@@ -105,6 +105,10 @@ fun OrderSuccessScreen(
 
                     Spacer(modifier = Modifier.height(20.dp))
 
+                    // DASHED LINE SEPARATOR
+                    Text("- - - - - - - - - - - - - - - - - - - - - - - -", color = Color.LightGray, maxLines = 1, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     // DATA ROWS
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Order ID", color = MaterialTheme.colorScheme.onSurface.copy(0.6f))
@@ -115,7 +119,7 @@ fun OrderSuccessScreen(
 
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Total Paid", color = MaterialTheme.colorScheme.onSurface.copy(0.6f))
-                        Text("$${String.format(Locale.US, "%.2f", total)}", fontWeight = FontWeight.Bold)
+                        Text("₺${String.format(Locale.US, "%.2f", total)}", fontWeight = FontWeight.Bold)
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))

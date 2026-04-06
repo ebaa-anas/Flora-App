@@ -49,7 +49,6 @@ fun OnboardingScreen(onFinish: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { pages.size })
     val scope = rememberCoroutineScope()
 
-    // THEME FIX: Replaced Color.White with background role
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -96,7 +95,6 @@ fun OnboardingScreen(onFinish: () -> Unit) {
                 }
             }
 
-            // BUTTON: Fixed the "Blue text" risk and ensured theme harmony
             Button(
                 onClick = {
                     if (pagerState.currentPage < pages.size - 1) {
@@ -150,7 +148,7 @@ fun OnboardingContent(page: OnboardingPage) {
             text = page.title,
             fontSize = 38.sp,
             fontWeight = FontWeight.Black,
-            color = MaterialTheme.colorScheme.onBackground, // Theme-Aware Title
+            color = MaterialTheme.colorScheme.onBackground,
             textAlign = TextAlign.Center,
             lineHeight = 44.sp,
             letterSpacing = (-1.5).sp
@@ -161,7 +159,7 @@ fun OnboardingContent(page: OnboardingPage) {
         Text(
             text = page.description,
             fontSize = 16.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), // Theme-Aware Description
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 10.dp),
             lineHeight = 24.sp

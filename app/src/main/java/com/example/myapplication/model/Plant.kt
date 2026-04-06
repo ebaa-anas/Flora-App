@@ -12,7 +12,7 @@ data class Plant(
     val description: String,
     val isPetSafe: Boolean = true,
     val light: String = "All",
-    @SerialName("image_url") // Matches SQL column name
+    @SerialName("image_url")
     val imageUrl: String,
     val rating: Double = 5.0
 )

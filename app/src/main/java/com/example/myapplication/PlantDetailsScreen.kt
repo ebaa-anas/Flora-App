@@ -11,7 +11,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.*
@@ -32,27 +31,57 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.myapplication.model.CareGuide
 import com.example.myapplication.model.Plant
+import io.github.jan.supabase.gotrue.auth
 import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 
 // --- 1. DATA LOGIC ---
+
+@Serializable
+data class FavoriteRequest(val user_id: String, val plant_id: Long)
 
 suspend fun fetchCareGuide(plantId: Long): CareGuide? {
     return withContext(Dispatchers.IO) {
         try {
-            // FIX: Ensure 'supabase' is imported or accessible here
             supabase.from("care_guides")
-                .select {
-                    filter {
-                        eq("plant_id", plantId)
-                    }
-                }
+                .select { filter { eq("plant_id", plantId) } }
                 .decodeSingleOrNull<CareGuide>()
         } catch (e: Exception) {
             Log.e("SupabaseError", "CareGuide Fetch Failed: ${e.message}")
             null
         }
+    }
+}
+
+suspend fun checkIsFavorite(plantId: Long): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            val user = supabase.auth.currentUserOrNull() ?: return@withContext false
+            val result = supabase.from("favorites")
+                .select { filter { eq("user_id", user.id); eq("plant_id", plantId) } }
+                .decodeList<FavoriteRequest>()
+            result.isNotEmpty()
+        } catch (e: Exception) { false }
+    }
+}
+
+suspend fun toggleFavorite(plantId: Long, isCurrentlyFavorite: Boolean): Boolean {
+    return withContext(Dispatchers.IO) {
+        try {
+            val user = supabase.auth.currentUserOrNull() ?: return@withContext false
+            if (isCurrentlyFavorite) {
+                supabase.from("favorites").delete {
+                    filter { eq("user_id", user.id); eq("plant_id", plantId) }
+                }
+                false
+            } else {
+                supabase.from("favorites").insert(FavoriteRequest(user.id, plantId))
+                true
+            }
+        } catch (e: Exception) { isCurrentlyFavorite }
     }
 }
 
@@ -66,33 +95,52 @@ fun PlantDetailsScreen(
     onAddToCart: (String?) -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var selectedPot by remember { mutableStateOf<String?>(null) }
     var careData by remember { mutableStateOf<CareGuide?>(null) }
+    var isFavorite by remember { mutableStateOf(false) }
 
-    // FETCH CARE DATA
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // FETCH DATA
     LaunchedEffect(plant.id) {
         val id = plant.id ?: 0L
         if (id != 0L) {
             careData = fetchCareGuide(id)
+            isFavorite = checkIsFavorite(id)
         }
     }
 
-    val potPrice = 15.0
-    val totalWithPot = if (selectedPot != null) plant.price + potPrice else plant.price
+    // FIX: Bulletproof total calculation. Only adds 15.0 if Ceramic is explicitly selected.
+    val totalWithPot = if (selectedPot?.contains("Ceramic") == true) plant.price + 15.0 else plant.price
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("") },
                 navigationIcon = {
                     IconButton(
                         onClick = onBack,
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .background(MaterialTheme.colorScheme.surface.copy(0.7f), CircleShape)
+                        modifier = Modifier.padding(8.dp).background(MaterialTheme.colorScheme.surface.copy(0.7f), CircleShape)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onSurface)
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            val id = plant.id ?: return@IconButton
+                            isFavorite = !isFavorite
+                            scope.launch { isFavorite = toggleFavorite(id, !isFavorite) }
+                        },
+                        modifier = Modifier.padding(8.dp).background(MaterialTheme.colorScheme.surface.copy(0.7f), CircleShape)
+                    ) {
+                        val heartIcon = if (isFavorite) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder
+                        val heartTint by animateColorAsState(if (isFavorite) Color(0xFFE63946) else MaterialTheme.colorScheme.onSurface)
+                        Icon(heartIcon, "Favorite", tint = heartTint)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
@@ -123,7 +171,6 @@ fun PlantDetailsScreen(
                             .appendQueryParameter("title", plant.name)
                             .build()
                         sceneViewerIntent.setData(intentUri)
-                        // FIX: Added 'google' to the package name for compatibility
                         sceneViewerIntent.setPackage("com.google.android.googlequicksearchbox")
                         context.startActivity(sceneViewerIntent)
                     },
@@ -132,10 +179,7 @@ fun PlantDetailsScreen(
                     shape = RoundedCornerShape(16.dp),
                     shadowElevation = 8.dp
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.ViewInAr, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("View in AR", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
@@ -150,18 +194,17 @@ fun PlantDetailsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(plant.name, fontSize = 22.sp, fontWeight = FontWeight.Black)
                         Text(plant.category, color = Color.Gray, fontSize = 16.sp)
                     }
-                    Text("$${plant.price}", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                    Text("₺${plant.price}", fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
 
                 // CARE INFO
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    // Match these with your Supabase column names
                     CareInfoItem(Icons.Rounded.WbSunny, "Light", careData?.light_requirement ?: "Bright")
                     CareInfoItem(Icons.Rounded.WaterDrop, "Water", careData?.watering_frequency ?: "Weekly")
                     CareInfoItem(Icons.Rounded.Thermostat, "Temp", careData?.temperature_range ?: "22°C")
@@ -184,6 +227,9 @@ fun PlantDetailsScreen(
                         val isSelected = selectedPot == pot
                         val borderColor by animateColorAsState(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
 
+                        // FIX: Dynamically calculate the price for this specific pot in the list
+                        val currentPotFee = if (pot.contains("Ceramic")) 15.0 else 0.0
+
                         Card(
                             modifier = Modifier
                                 .width(180.dp)
@@ -197,17 +243,16 @@ fun PlantDetailsScreen(
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
                                 Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(100.dp)
-                                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(16.dp)),
+                                    modifier = Modifier.fillMaxWidth().height(100.dp).background(MaterialTheme.colorScheme.background, RoundedCornerShape(16.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(if (pot.contains("Ceramic")) "⚪" else "🟠", fontSize = 40.sp)
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(pot, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                Text("+$potPrice", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold)
+
+                                // Displays +₺15.0 or +₺0.0 based on the pot
+                                Text("+₺${currentPotFee}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.ExtraBold)
                             }
                         }
                     }
@@ -216,7 +261,15 @@ fun PlantDetailsScreen(
                 Spacer(modifier = Modifier.height(32.dp))
 
                 Button(
-                    onClick = { onAddToCart(selectedPot) },
+                    onClick = {
+                        onAddToCart(selectedPot)
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                message = "Added to Cart ✓",
+                                duration = SnackbarDuration.Short
+                            )
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().height(64.dp),
                     shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -224,7 +277,7 @@ fun PlantDetailsScreen(
                     Icon(Icons.Rounded.LocalMall, null)
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Add Bundle • $$totalWithPot",
+                        text = "Add Bundle • ₺$totalWithPot",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
@@ -237,16 +290,8 @@ fun PlantDetailsScreen(
 
 @Composable
 fun CareInfoItem(icon: ImageVector, label: String, value: String) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(horizontal = 8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(horizontal = 8.dp)) {
+        Box(modifier = Modifier.size(40.dp).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), CircleShape), contentAlignment = Alignment.Center) {
             Icon(imageVector = icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
         }
         Spacer(modifier = Modifier.height(4.dp))
