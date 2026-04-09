@@ -20,8 +20,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,7 +54,7 @@ import io.github.jan.supabase.postgrest.from
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import kotlinx.serialization.Serializable
 
 // 1. Credentials
@@ -266,7 +268,7 @@ class MainActivity : ComponentActivity() {
                             signUpLogic = { e, p, n, ph -> signUpProfessional(e, p, n, ph) }
                         )
 
-                        "home", "settings", "my_plants", "expert_chat", "cart", "my_orders" -> {
+                        "home", "settings", "my_plants", "expert_chat", "cart", "my_orders", "favorites" -> {
                             FloraMainContainer(
                                 userName = userName,
                                 userEmail = userEmail,
@@ -456,6 +458,13 @@ fun FloraMainContainer(
                 onNavChange = { screen ->
                     onNavChange(screen)
                     scope.launch { drawerState.close() }
+                },
+                        onLogout = {
+                    scope.launch {
+                        drawerState.close()
+                        supabase.auth.signOut()
+                        onNavChange("login")
+                    }
                 }
             )
         }
@@ -471,6 +480,15 @@ fun FloraMainContainer(
                         }
                     },
                     actions = {
+                        // 1. THE FAVORITES BUTTON
+                        IconButton(onClick = { onNavChange("favorites") }) {
+                            Icon(
+                                imageVector = Icons.Rounded.FavoriteBorder,
+                                contentDescription = "Favorites",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        // 1. THE CART BUTTON
                         IconButton(onClick = { onNavChange("cart") }) {
                             BadgedBox(badge = { if (cartItems.isNotEmpty()) Badge { Text(cartItems.size.toString()) } }) {
                                 Icon(Icons.Default.ShoppingCart, "Cart", tint = MaterialTheme.colorScheme.primary)
@@ -498,7 +516,12 @@ fun FloraMainContainer(
                             )
                         }
                     }
-
+                    "favorites" -> {
+                        FavoritesScreen(
+                            onBack = { onNavChange("home") },
+                            onPlantClick = onPlantClick // Reuses the exact same click logic to open details
+                        )
+                    }
                     "my_plants" -> MyGreenhouseScreen(padding = PaddingValues(0.dp), userName = userName)
                     "expert_chat" -> ExpertChatScreen(onBack = { onNavChange("home") })
 
@@ -721,9 +744,39 @@ fun PromoBannerCard(item: PromoItem) {
         }
     }
 }
-
 @Composable
-fun ProfessionalSidebar(userName: String, userEmail: String, currentNav: String, onNavChange: (String) -> Unit) {
+fun ProfessionalSidebar(
+    userName: String,
+    userEmail: String,
+    currentNav: String,
+    onNavChange: (String) -> Unit,
+    onLogout: () -> Unit
+) {
+    var showLogoutDialog by remember { mutableStateOf(false) }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            title = { Text("Log Out", fontWeight = FontWeight.Black, color = Color(0xFF1B4332)) },
+            text = { Text("Are you sure you want to log out of your Flora account?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showLogoutDialog = false
+                    onLogout()
+                }) {
+                    Text("Yes, Log Out", color = Color(0xFFE63946), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text("Cancel", color = Color.Gray)
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(24.dp)
+        )
+    }
+
     ModalDrawerSheet(
         modifier = Modifier.width(310.dp).fillMaxHeight(),
         drawerContainerColor = Color(0xFF081C15),
@@ -734,6 +787,7 @@ fun ProfessionalSidebar(userName: String, userEmail: String, currentNav: String,
                 .fillMaxSize()
                 .padding(24.dp)
         ) {
+            // --- 1. PINNED HEADER ---
             Box(
                 modifier = Modifier
                     .size(70.dp)
@@ -749,20 +803,38 @@ fun ProfessionalSidebar(userName: String, userEmail: String, currentNav: String,
             Text(userName, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Text(userEmail, fontSize = 14.sp, color = Color.White.copy(0.6f))
 
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // --- 2. SCROLLABLE MIDDLE SECTION ---
+            // Adding weight(1f) and verticalScroll makes this the flexible area!
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 SidebarItem(Icons.Default.Home, "Home", currentNav == "home") { onNavChange("home") }
                 SidebarItem(Icons.Default.Star, "My Greenhouse", currentNav == "my_plants") { onNavChange("my_plants") }
                 SidebarItem(Icons.Default.Call, "Expert Support", currentNav == "expert_chat") { onNavChange("expert_chat") }
-                SidebarItem(Icons.AutoMirrored.Filled.List, "My Orders", currentNav == "my_orders") { onNavChange("my_orders") }
+                SidebarItem(Icons.Rounded.Favorite, "My Favorites", currentNav == "favorites") { onNavChange("favorites") }
+                SidebarItem(Icons.AutoMirrored.Filled.List, "Order History", currentNav == "my_orders") { onNavChange("my_orders") }
                 SidebarItem(Icons.Default.ShoppingCart, "My Cart", currentNav == "cart") { onNavChange("cart") }
                 SidebarItem(Icons.Default.Settings, "Settings", currentNav == "settings") { onNavChange("settings") }
+            }
+
+            // --- 3. PINNED FOOTER ---
+            HorizontalDivider(color = Color.White.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 16.dp))
+
+            SidebarItem(
+                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                label = "Log Out",
+                isSelected = false
+            ) {
+                showLogoutDialog = true
             }
         }
     }
 }
-
 @Composable
 fun SidebarItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, isSelected: Boolean, onClick: () -> Unit) {
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(12.dp)).background(if (isSelected) Color(0xFF2D6A4F) else Color.Transparent).clickable { onClick() }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
