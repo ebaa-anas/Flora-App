@@ -618,7 +618,8 @@ fun FloraHomeScreenContent(
     val promoBanners = listOf(
         PromoItem("Best Seller", "Monstera Deliciosa", Color(0xFF2D6A4F), "https://images.unsplash.com/photo-1614594975525-e45190c55d0b?q=80&w=800"),
         PromoItem("Summer Sale", "Up to 50% Off", Color(0xFF1B4332), "https://images.unsplash.com/photo-1466781783364-391eaf8942ad?q=80&w=800"),
-        PromoItem("Best Seller", "Monstera Deliciosa", Color(0xFF2D6A4F), "https://images.unsplash.com/photo-1614594975525-e45190c55d0b?q=80&w=800")
+        PromoItem("New Arrival", "Snake Plant", Color(0xFF40916C), "https://images.unsplash.com/photo-1599421498111-cebc45e744cb?q=80&w=800"),
+        PromoItem("Rare Find", "Pink Princess", Color(0xFF081C15), "https://images.unsplash.com/photo-1620127593132-db6c0e81b676?q=80&w=800")
     )
     val pagerState = rememberPagerState(pageCount = { promoBanners.size })
 
@@ -703,7 +704,7 @@ fun FloraHomeScreenContent(
         LazyRow( contentPadding = PaddingValues(horizontal = 24.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.padding(bottom = 16.dp)) {
-            items(listOf("All", "Indoor", "Outdoor", "Seeds")) { category ->
+            items(listOf("All", "Indoor", "Outdoor")) { category ->
                 val isSelected = selectedCategory == category
                 Surface(
                     onClick = { selectedCategory = category },

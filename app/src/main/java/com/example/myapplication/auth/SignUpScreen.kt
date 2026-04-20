@@ -2,14 +2,12 @@ package com.example.myapplication.auth
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import io.github.jan.supabase.gotrue.providers.Google
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,8 +20,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.R
-import com.example.myapplication.supabase
-import io.github.jan.supabase.gotrue.auth
 import kotlinx.coroutines.launch
 
 @Composable
@@ -37,7 +33,7 @@ fun SignUpScreen(
     var phone by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
-    var errorText by remember { mutableStateOf("") } // Added to handle Google errors gracefully
+    var errorText by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -105,30 +101,7 @@ fun SignUpScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-            Text("Or continue with", color = Color.Gray, fontSize = 12.sp)
-
-            // GOOGLE SIGN UP BUTTON (Added exactly matching LoginScreen)
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        try {
-                            supabase.auth.signInWith(Google)
-                            val user = supabase.auth.currentUserOrNull()
-                            if (user != null) {
-                                val googleName = user.userMetadata?.get("full_name").toString()
-                                android.widget.Toast.makeText(context, "Welcome, $googleName", android.widget.Toast.LENGTH_LONG).show()
-                                onSignUpComplete(googleName)
-                            }
-                        } catch (e: Exception) {
-                            errorText = "Google Error: ${e.localizedMessage}"
-                        }
-                    }
-                },
-                modifier = Modifier.padding(16.dp).size(50.dp).background(Color(0xFFF1F8F5), CircleShape)
-            ) {
-                Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color(0xFF2D6A4F))
-            }
+            Spacer(modifier = Modifier.height(24.dp))
 
             TextButton(onClick = onGoToLogin) {
                 Text("Already have an account? Log in", color = Color(0xFF52B788))

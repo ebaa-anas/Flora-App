@@ -19,6 +19,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage // Added Coil import for the Google Logo
 import com.example.myapplication.R
 import com.example.myapplication.supabase
 import io.github.jan.supabase.gotrue.auth
@@ -105,11 +106,19 @@ fun LoginScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-            Text("Or continue with", color = Color.Gray, fontSize = 12.sp)
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // GOOGLE LOGIN BUTTON
-            IconButton(
+            // Professional "OR" Divider
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color.LightGray)
+                Text(" OR ", color = Color.Gray, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 8.dp))
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color.LightGray)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // GOOGLE LOGIN BUTTON (New UI connected to your working Supabase logic)
+            OutlinedButton(
                 onClick = {
                     scope.launch {
                         try {
@@ -123,10 +132,20 @@ fun LoginScreen(
                         }
                     }
                 },
-                modifier = Modifier.padding(16.dp).size(50.dp).background(Color(0xFFF1F8F5), CircleShape)
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color.LightGray)
             ) {
-                Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color(0xFF2D6A4F))
+                AsyncImage(
+                    model = "https://img.icons8.com/color/48/google-logo.png",
+                    contentDescription = "Google Logo",
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Sign in with Google", color = Color.DarkGray, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             TextButton(onClick = onGoToSignup) {
                 Text("Don't have an account? Sign up", color = Color(0xFF52B788))

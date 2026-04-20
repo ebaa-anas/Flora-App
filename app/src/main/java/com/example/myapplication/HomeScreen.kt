@@ -14,8 +14,8 @@ import coil.compose.AsyncImage
 import com.example.myapplication.model.Plant
 @Composable
 fun HomeScreen(
-    padding: PaddingValues, // Receive padding from the MainContainer's Scaffold
-    plants: List<Plant>,    // Pass data directly instead of fetching again
+    padding: PaddingValues,
+    plants: List<Plant>,
     onPlantClick: (Plant) -> Unit
 ) {
     Box(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -39,8 +39,8 @@ fun PlantCard(plant: Plant, onClick: () -> Unit) { // Added onClick parameter he
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }, // Now the card can actually be clicked!
-        shape = RoundedCornerShape(16.dp), // Keeping your design consistent
+            .clickable { onClick() },
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
